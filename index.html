@@ -269,17 +269,23 @@ document.addEventListener("click", async function (e) {
   } catch (err) { toast(err.message); b.disabled = false; }
 });
 
-// ===== PROFIL ANGGOTA =====
+// ===== PROFIL ANGGOTA (tabel anggota_omb: id_anggota, nama_panggilan) =====
 async function loadProfile() {
-  var u = S.user, m = null;
+  var u = S.user, m = null, errs = [];
   async function tryQ(col, val) {
     if (m || val == null || val === "") return;
-    try { var r = await sb.from("anggota_omb_public").select("*").eq(col, val).limit(1); if (!r.error && r.data && r.data[0]) m = r.data[0]; } catch (e) {}
+    try {
+      var r = await sb.from("anggota_omb").select("id_anggota,nama_panggilan").eq(col, val).limit(1);
+      if (r.error) errs.push(col + ": " + r.error.message);
+      else if (r.data && r.data[0]) m = r.data[0];
+    } catch (e) { errs.push(col + ": " + e.message); }
   }
   await tryQ("user_id", u.id);
+  await tryQ("auth_user_id", u.id);
   await tryQ("email", u.email);
-  if (!m && S.sess) await tryQ("id_anggota", S.sess.member_id);
-  S.profile = m ? { id: m.id_anggota, nama: m.nama || m.nama_lengkap || m.name } : null;
+  if (S.sess) { await tryQ("id", S.sess.member_id); await tryQ("id_anggota", S.sess.member_id); }
+  if (!m && errs.length) console.warn("Profil anggota tidak ditemukan:", errs);
+  S.profile = m ? { id: m.id_anggota, nama: m.nama_panggilan } : null;
 }
 
 async function boot() {
