@@ -51,8 +51,8 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--acc);outline-of
 <script>
 // ===== KONFIGURASI (isi sendiri; anon key memang publik, JANGAN isi service role) =====
 var SUPABASE_URL = "https://yloxoxgvedepmegihver.supabase.co";
-var ANON_KEY = "sb_publishable_DWylNJ9ELqHckOp3UsfQqw_AIQW9nQU";
-var QRIS_STATIC = "ISI_PAYLOAD_QRIS_STATIC"; // diambil dari paket OMB Nota Cas
+var ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlsb3hveGd2ZWRlcG1lZ2lodmVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc3Mzk4NDYsImV4cCI6MjEwMzMxNTg0Nn0.b74It13ynjkLSBqsvyuYbWmo0TkL0ztb1bj9d8TAerc";
+var QRIS_STATIC = "00020101021126570011ID.DANA.WWW011893600915303471271802090347127180303UMI51440014ID.CO.QRIS.WWW0215ID10265837741240303UMI5204739453033605802ID5916Semilir Semarang6013Kota Semarang6105501166304285A"; // dari OMB Nota Cas
 var API = SUPABASE_URL + "/functions/v1/charge-api";
 
 var sb = supabase.createClient(SUPABASE_URL, ANON_KEY);
@@ -78,11 +78,15 @@ function crc16(s) {
   return c.toString(16).toUpperCase().padStart(4, "0");
 }
 function qrisDynamic(amount) {
-  var p = QRIS_STATIC.slice(0, -8).replace("010211", "010212");
-  var i = p.indexOf("5802ID");
-  var a = String(amount);
-  p = p.slice(0, i) + "54" + String(a.length).padStart(2, "0") + a + p.slice(i) + "6304";
-  return p + crc16(p);
+  var f = [], p = QRIS_STATIC, k = 0;
+  while (k < p.length) { var l = parseInt(p.substr(k + 2, 2), 10); f.push({ t: p.substr(k, 2), v: p.substr(k + 4, l) }); k += 4 + l; }
+  f = f.filter(function (x) { return x.t !== "63" && x.t !== "54"; });
+  f.forEach(function (x) { if (x.t === "01") x.v = "12"; });
+  var ci = -1; f.forEach(function (x, n) { if (x.t === "53") ci = n; });
+  var a = { t: "54", v: String(Math.round(amount)) };
+  if (ci >= 0) f.splice(ci + 1, 0, a); else f.push(a);
+  var s = f.map(function (x) { return x.t + String(x.v.length).padStart(2, "0") + x.v; }).join("") + "6304";
+  return s + crc16(s);
 }
 
 // ===== API =====
@@ -132,7 +136,7 @@ function login(err) {
 }
 
 function head() {
-  var t = S.admin ? '<div class="tabs"><button class="' + (S.tab === "charge" ? "" : "ghost") + '" data-act="tab" data-v="charge">Charge</button>' +
+  var t = S.admin ? '<div class="tabs"><button class="' + (S.tab === "charge" ? "" : "ghost") + '" data-act="tab" data-v="charge">Cas</button>' +
     '<button class="' + (S.tab === "admin" ? "" : "ghost") + '" data-act="tab" data-v="admin">Admin</button></div>' : "";
   return '<div class="row sp"><h1>OMB Charge</h1><button class="ghost sm" data-act="logout">Keluar</button></div>' + t;
 }
@@ -151,12 +155,12 @@ function userView() {
   var s = S.sess;
   if (s && (s.status === "pending" || s.status === "running")) {
     var used = s.status === "running" ? Math.max(0, (s.last_wh || s.start_wh) - s.start_wh) : 0;
-    var pct = Math.min(100, used / s.target_wh * 100);
     return '<p class="sub">Colokan ' + s.outlet_id + '</p><div class="card"><span class="tag run">' +
-      (s.status === "pending" ? "Menunggu perangkat" : "Sedang mengisi") + '</span>' +
+      (s.status === "pending" ? "Menunggu perangkat" : s.stop_requested_at ? "Menghentikan..." : "Sedang mengisi") + '</span>' +
       '<div class="num">' + kwh(used) + ' <small class="mute">kWh</small></div>' +
-      '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
-      '<div class="mute">Target ' + kwh(s.target_wh) + ' kWh. Berhenti otomatis saat target tercapai atau tidak ada aliran listrik 10 detik.</div></div>';
+      '<div class="mute">Perkiraan biaya ' + rp(Math.ceil(used * s.tariff_per_kwh / 1000 / 100) * 100) + '</div>' +
+      '<p class="mute">Berhenti saat Anda menekan Stop, atau otomatis jika tidak ada aliran listrik 10 detik.</p>' +
+      '<button class="big bad" data-act="stop"' + (s.stop_requested_at ? " disabled" : "") + '>Stop</button></div>';
   }
   if (s && s.payment_status === "unpaid") {
     return '<p class="sub">Tagihan belum lunas</p><div class="card"><span class="tag unpaid">Belum dibayar</span>' +
@@ -168,10 +172,8 @@ function userView() {
       '<small>' + (x.is_available ? "Tersedia" : "Tidak tersedia") + '</small></button>';
   }).join("");
   var last = s && s.payment_status === "paid" ? '<p class="mute">Sesi terakhir: ' + kwh(s.used_wh) + ' kWh, ' + rp(s.amount_idr) + ' (lunas).</p>' : "";
-  return '<p class="sub">Pilih colokan, tentukan target, lalu mulai.</p><h2>Colokan</h2><div class="outlets">' + o + '</div>' +
-    '<h2>Target kWh</h2><div class="card"><input id="tg" type="number" inputmode="decimal" min="0.1" step="0.1" placeholder="Contoh 1.5">' +
-    '<div class="chips">' + [0.5, 1, 1.5, 2].map(function (v) { return '<button class="ghost sm" data-act="chip" data-v="' + v + '">' + v + ' kWh</button>'; }).join("") + '</div>' +
-    '<div class="mute" id="est">Tarif ' + rp(S.tariff) + '/kWh. Maksimal ' + kwh(S.maxWh) + ' kWh.</div></div>' + last +
+  return '<p class="sub">Pilih colokan, lalu tekan Mulai.</p><h2>Colokan</h2><div class="outlets">' + o + '</div>' +
+    '<p class="mute">Tarif ' + rp(S.tariff) + '/kWh. Tagihan dihitung dari pemakaian saat Stop.</p>' + last +
     '<button class="big acc" data-act="start">Mulai</button>';
 }
 
@@ -212,16 +214,18 @@ document.addEventListener("click", async function (e) {
       if (!o || !o.is_available) return toast("Colokan tidak tersedia");
       S.outlet = o.id; S.sig = ""; return render();
     }
-    if (act === "chip") { document.getElementById("tg").value = v; return; }
     if (act === "start") {
       var o2 = S.outlets.filter(function (x) { return x.id === S.outlet; })[0];
       if (!o2 || !o2.is_available) return toast("Colokan tidak tersedia");
-      var wh = Math.round(parseFloat(document.getElementById("tg").value) * 1000);
-      if (!wh || wh < 1) return toast("Isi target kWh dulu");
-      if (wh > S.maxWh) return toast("Target maksimal " + kwh(S.maxWh) + " kWh");
       b.disabled = true;
-      await api("/session", { outlet_id: S.outlet, target_wh: wh });
-      toast("Sesi dibuat. Menunggu perangkat.");
+      await api("/session", { outlet_id: S.outlet, target_wh: S.maxWh });
+      toast("Menunggu perangkat menyalakan colokan");
+    }
+    if (act === "stop") {
+      if (!confirm("Hentikan pengisian sekarang?")) return;
+      b.disabled = true;
+      await api("/session/stop", {});
+      toast("Perintah stop dikirim");
     }
     if (act === "paid") await api("/admin/paid", { session_id: v });
     if (act === "cancel") await api("/admin/finish", { session_id: v, action: "cancel" });
@@ -243,12 +247,6 @@ document.addEventListener("click", async function (e) {
     }
     S.sig = ""; load();
   } catch (err) { toast(err.message); b.disabled = false; }
-});
-
-document.addEventListener("input", function (e) {
-  if (e.target.id !== "tg") return;
-  var w = parseFloat(e.target.value) || 0;
-  document.getElementById("est").textContent = "Perkiraan maksimal " + rp(Math.ceil(w * S.tariff / 100) * 100) + " (tarif " + rp(S.tariff) + "/kWh)";
 });
 
 async function boot() {
