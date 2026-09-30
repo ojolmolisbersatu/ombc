@@ -65,7 +65,7 @@ var API = SUPABASE_URL + "/functions/v1/charge-api";
 
 var sb = supabase.createClient(SUPABASE_URL, ANON_KEY);
 var $app = document.getElementById("app");
-var S = { user: null, admin: false, tab: "charge", outlets: [], tariff: 0, maxWh: 5000, sess: null, all: [], names: {}, outlet: 1, sig: "", profile: null, busy: {}, tgt: 1000, custom: "" };
+var S = { user: null, admin: false, tab: "charge", outlets: [], tariff: 0, maxWh: 5000, sess: null, all: [], names: {}, outlet: 1, sig: "", profile: null, busy: {}, tgt: 1000, custom: "", pwOpen: false, np1: "", np2: "", members: null, msq: "" };
 
 function esc(t) { return String(t == null ? "" : t).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
 function rp(n) { return "Rp" + Number(n || 0).toLocaleString("id-ID"); }
@@ -135,8 +135,12 @@ async function load() {
     var m = await sb.from("anggota_omb").select("id,nama").in("id", ids);
     if (m.data) m.data.forEach(function (x) { S.names[x.id] = x.nama; });
   }
-  var sig = JSON.stringify([S.sess, S.all, S.tariff, S.tab, S.outlets, S.busy]);
-  if (sig !== S.sig) { S.sig = sig; render(); }
+  if (S.admin && S.tab === "admin" && S.members === null) {
+    try { S.members = (await api("/admin/members")).members || []; } catch (e) { S.members = []; toast("Daftar anggota gagal dimuat: " + e.message); }
+  }
+  var sig = JSON.stringify([S.sess, S.all, S.tariff, S.tab, S.outlets, S.busy, S.members, S.pwOpen]);
+  var typing = document.activeElement && document.activeElement.tagName === "INPUT";
+  if (sig !== S.sig && !typing) { S.sig = sig; render(); } // tunda render saat pengguna sedang mengetik
 }
 
 // ===== TAMPILAN =====
@@ -153,7 +157,11 @@ function head() {
     '<button class="' + (S.tab === "admin" ? "" : "ghost") + '" data-act="tab" data-v="admin">Admin</button></div>' : "";
   var p = S.profile, nama = p && p.nama ? p.nama : (S.user.email || "Anggota");
   var hi = '<p class="hi">Halo, <b>' + esc(nama) + '</b>' + (p && p.id != null ? '<span class="tag">ID Anggota: ' + esc(p.id) + '</span>' : '') + '</p>';
-  return '<div class="row sp"><h1>OMB Service</h1><button class="ghost sm" data-act="logout">Keluar</button></div>' + hi + t;
+  var pw = S.pwOpen ? '<div class="card"><b>Ubah password</b>' +
+    '<label class="mute" for="np1">Password baru (minimal 8 karakter)</label><input id="np1" type="password" autocomplete="new-password" value="' + esc(S.np1) + '">' +
+    '<label class="mute" for="np2">Ulangi password baru</label><input id="np2" type="password" autocomplete="new-password" value="' + esc(S.np2) + '">' +
+    '<div class="row" style="margin-top:10px"><button class="acc" data-act="pwsave">Simpan</button><button class="ghost" data-act="pwform">Batal</button></div></div>' : "";
+  return '<div class="row sp"><h1>OMB Service</h1><div class="row"><button class="ghost sm" data-act="pwform">Password</button><button class="ghost sm" data-act="logout">Keluar</button></div></div>' + hi + pw + t;
 }
 
 function render() {
@@ -198,6 +206,26 @@ function userView() {
     '<button class="big acc" data-act="start">Mulai</button>';
 }
 
+function memberRows() {
+  if (S.members === null) return '<p class="mute">Memuat...</p>';
+  var q = S.msq.trim().toLowerCase();
+  var list = S.members.filter(function (m) {
+    return !q || [m.nama_panggilan, m.id_anggota, m.email].join(" ").toLowerCase().indexOf(q) >= 0;
+  }).slice(0, 30);
+  if (!list.length) return '<p class="mute">Tidak ada anggota ditemukan.</p>';
+  return list.map(function (m) {
+    return '<div class="s"><div class="row sp"><div><b>' + esc(m.nama_panggilan || m.nama || "-") + '</b> <span class="mute">' + esc(m.id_anggota || "") + '</span>' +
+      '<div class="mute">' + esc(m.email || "") + '</div></div><button class="sm" data-act="resetpw" data-v="' + esc(m.user_id) + '">Reset</button></div></div>';
+  }).join("");
+}
+
+function genPw() {
+  var a = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789", r = new Uint32Array(10), o = "";
+  crypto.getRandomValues(r);
+  for (var i = 0; i < r.length; i++) o += a[r[i] % a.length];
+  return o;
+}
+
 function adminView() {
   var rows = S.all.map(function (x) {
     var btn = "";
@@ -215,6 +243,8 @@ function adminView() {
   return '<button class="big bad" data-act="off">OFF darurat colokan 1</button>' +
     '<h2>Tarif per 1.000 poin</h2><div class="card"><div class="mute">Sekarang ' + rp(S.tariff) + '. Sesi yang sudah berjalan tidak berubah.</div>' +
     '<div class="row" style="margin-top:8px"><input id="tf" type="number" inputmode="numeric" min="1" placeholder="Rupiah per 1.000 poin"><button data-act="tariff">Simpan tarif</button></div></div>' +
+    '<h2>Reset password anggota</h2><div class="card"><input id="ms" type="search" placeholder="Cari nama, ID anggota, atau email" value="' + esc(S.msq) + '">' +
+    '<div id="mlist">' + memberRows() + '</div></div>' +
     '<h2>Sesi terbaru</h2><div class="card">' + (rows || '<p class="mute">Belum ada sesi.</p>') + '</div>';
 }
 
@@ -228,13 +258,37 @@ document.addEventListener("click", async function (e) {
       if (r.error) return login("Email atau password salah.");
       return boot();
     }
-    if (act === "logout") { await sb.auth.signOut(); S.user = null; S.profile = null; S.sig = ""; return login(); }
+    if (act === "logout") { await sb.auth.signOut(); S.user = null; S.profile = null; S.members = null; S.pwOpen = false; S.np1 = ""; S.np2 = ""; S.sig = ""; return login(); }
     if (act === "tab") { S.tab = v; S.sig = ""; return load(); }
     if (act === "outlet") {
       var o = S.outlets.filter(function (x) { return String(x.id) === v; })[0];
       if (!o || !o.is_available) return toast("Colokan tidak tersedia");
       if (S.busy[o.id]) return toast("Colokan sedang dipakai");
       S.outlet = o.id; S.sig = ""; return render();
+    }
+    if (act === "pwform") { S.pwOpen = !S.pwOpen; S.np1 = ""; S.np2 = ""; S.sig = ""; return render(); }
+    if (act === "pwsave") {
+      var n1 = document.getElementById("np1").value, n2 = document.getElementById("np2").value;
+      if (n1.length < 8) return toast("Password minimal 8 karakter");
+      if (n1 !== n2) return toast("Ulangi password tidak sama");
+      b.disabled = true;
+      var ur = await sb.auth.updateUser({ password: n1 });
+      if (ur.error) {
+        var em = String(ur.error.message || "");
+        throw new Error(/same/i.test(em) ? "Password baru tidak boleh sama dengan yang lama" : "Gagal mengubah password: " + em);
+      }
+      S.pwOpen = false; S.np1 = ""; S.np2 = ""; S.sig = ""; render(); return toast("Password berhasil diubah");
+    }
+    if (act === "resetpw") {
+      var mem = (S.members || []).filter(function (m) { return m.user_id === v; })[0];
+      var nm = mem ? (mem.nama_panggilan || mem.email) : "anggota";
+      var np = prompt("Password baru untuk " + nm + " (minimal 8 karakter). Boleh diganti:", genPw());
+      if (np === null) return;
+      np = np.trim();
+      if (np.length < 8) return toast("Password minimal 8 karakter");
+      await api("/admin/reset-password", { user_id: v, new_password: np });
+      alert("Password " + nm + " sudah direset.\n\nPassword baru: " + np + "\n\nSampaikan ke anggota, lalu minta segera menggantinya lewat tombol Password.");
+      return;
     }
     if (act === "tgt") {
       S.tgt = v === "custom" ? "custom" : parseInt(v, 10); S.sig = ""; return render();
@@ -313,7 +367,13 @@ async function boot() {
   await loadProfile();
   S.sig = ""; render();
 }
-document.addEventListener("input", function (e) { if (e.target.id === "cp") S.custom = e.target.value; });
+document.addEventListener("input", function (e) {
+  var id = e.target.id;
+  if (id === "cp") S.custom = e.target.value;
+  if (id === "np1") S.np1 = e.target.value;
+  if (id === "np2") S.np2 = e.target.value;
+  if (id === "ms") { S.msq = e.target.value; var ml = document.getElementById("mlist"); if (ml) ml.innerHTML = memberRows(); }
+});
 setInterval(function () { if (S.user && document.visibilityState === "visible") load(); }, 4000);
 boot();
 if ("serviceWorker" in navigator) window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); });
