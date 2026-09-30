@@ -23,7 +23,7 @@ button.acc{background:var(--acc);color:var(--accink)}
 button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
 button.bad{background:var(--bad);color:#fff}
 button.sm{padding:8px 10px;font-size:14px}
-button:disabled{opacity:.5}
+button:disabled{opacity:.5;cursor:not-allowed}
 button:focus-visible,input:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
 .big{width:100%;font-size:18px;padding:16px}
 .outlets{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -42,6 +42,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--acc);outline-of
 .toast{position:fixed;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));max-width:488px;margin:0 auto;background:var(--ink);color:var(--bg);padding:14px;border-radius:12px;z-index:9}
 .s{border-top:1px solid var(--line);padding:12px 0}.s:first-child{border-top:0}
 .mute{color:var(--mute);font-size:14px}
+.hi{margin:0 0 12px}.hi b{font-size:18px}.hi .tag{margin-left:6px}
 </style>
 </head>
 <body>
@@ -57,11 +58,11 @@ var API = SUPABASE_URL + "/functions/v1/charge-api";
 
 var sb = supabase.createClient(SUPABASE_URL, ANON_KEY);
 var $app = document.getElementById("app");
-var S = { user: null, admin: false, tab: "charge", outlets: [], tariff: 0, maxWh: 5000, sess: null, all: [], names: {}, outlet: 1, sig: "" };
+var S = { user: null, admin: false, tab: "charge", outlets: [], tariff: 0, maxWh: 5000, sess: null, all: [], names: {}, outlet: 1, sig: "", profile: null, busy: {}, tgt: 1000, custom: "" };
 
 function esc(t) { return String(t == null ? "" : t).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
 function rp(n) { return "Rp" + Number(n || 0).toLocaleString("id-ID"); }
-function kwh(wh) { return (Number(wh || 0) / 1000).toFixed(3); }
+function poin(wh) { return Math.round(Number(wh || 0)).toLocaleString("id-ID"); } // 1 poin = 1 Wh
 function toast(m) {
   var d = document.createElement("div"); d.className = "toast"; d.setAttribute("role", "status"); d.textContent = m;
   document.body.appendChild(d); setTimeout(function () { d.remove(); }, 3500);
@@ -115,6 +116,9 @@ async function load() {
   S.tariff = q[1].data && q[1].data[0] ? q[1].data[0].price_per_kwh : 0;
   S.maxWh = q[2].data ? q[2].data.max_target_wh : 5000;
   S.sess = q[3].data && q[3].data[0] ? q[3].data[0] : null;
+  var bz = await sb.from("charge_sessions").select("outlet_id").in("status", ["pending", "running"]);
+  S.busy = {};
+  (bz.data || []).forEach(function (x) { S.busy[x.outlet_id] = true; });
   if (S.admin && S.tab === "admin") {
     var a = await sb.from("charge_sessions").select("*").order("created_at", { ascending: false }).limit(30);
     S.all = a.data || [];
@@ -122,7 +126,7 @@ async function load() {
     var m = await sb.from("anggota_omb").select("id,nama").in("id", ids);
     if (m.data) m.data.forEach(function (x) { S.names[x.id] = x.nama; });
   }
-  var sig = JSON.stringify([S.sess, S.all, S.tariff, S.tab, S.outlets]);
+  var sig = JSON.stringify([S.sess, S.all, S.tariff, S.tab, S.outlets, S.busy]);
   if (sig !== S.sig) { S.sig = sig; render(); }
 }
 
@@ -138,7 +142,9 @@ function login(err) {
 function head() {
   var t = S.admin ? '<div class="tabs"><button class="' + (S.tab === "charge" ? "" : "ghost") + '" data-act="tab" data-v="charge">Cas</button>' +
     '<button class="' + (S.tab === "admin" ? "" : "ghost") + '" data-act="tab" data-v="admin">Admin</button></div>' : "";
-  return '<div class="row sp"><h1>OMB Service</h1><button class="ghost sm" data-act="logout">Keluar</button></div>' + t;
+  var p = S.profile, nama = p && p.nama ? p.nama : (S.user.email || "Anggota");
+  var hi = '<p class="hi">Halo, <b>' + esc(nama) + '</b>' + (p && p.id != null ? '<span class="tag">ID Anggota: ' + esc(p.id) + '</span>' : '') + '</p>';
+  return '<div class="row sp"><h1>OMB Service</h1><button class="ghost sm" data-act="logout">Keluar</button></div>' + hi + t;
 }
 
 function render() {
@@ -157,22 +163,28 @@ function userView() {
     var used = s.status === "running" ? Math.max(0, (s.last_wh || s.start_wh) - s.start_wh) : 0;
     return '<p class="sub">Colokan ' + s.outlet_id + '</p><div class="card"><span class="tag run">' +
       (s.status === "pending" ? "Menunggu perangkat" : s.stop_requested_at ? "Menghentikan..." : "Sedang mengisi") + '</span>' +
-      '<div class="num">' + kwh(used) + ' <small class="mute">Poin</small></div>' +
+      '<div class="num">' + poin(used) + ' <small class="mute">Poin</small></div>' +
       '<div class="mute">Perkiraan biaya ' + rp(Math.ceil(used * s.tariff_per_kwh / 1000 / 100) * 100) + '</div>' +
       '<p class="mute">Berhenti saat Anda menekan Stop, atau otomatis jika tidak ada aliran listrik 10 detik.</p>' +
       '<button class="big bad" data-act="stop"' + (s.stop_requested_at ? " disabled" : "") + '>Stop</button></div>';
   }
   if (s && s.payment_status === "unpaid") {
     return '<p class="sub">Tagihan belum lunas</p><div class="card"><span class="tag unpaid">Belum dibayar</span>' +
-      '<div class="num">' + rp(s.amount_idr) + '</div><div class="mute">' + kwh(s.used_wh) + ' Poin</div>' +
+      '<div class="num">' + rp(s.amount_idr) + '</div><div class="mute">' + poin(s.used_wh) + ' Poin</div>' +
       '<div id="qr"></div><p class="mute">Bayar lewat QRIS di atas. Admin akan memverifikasi pembayaran secara manual, lalu Anda bisa mengisi lagi.</p></div>';
   }
   var o = S.outlets.map(function (x) {
-    return '<button class="outlet ' + (S.outlet === x.id ? "sel" : "") + '" data-act="outlet" data-v="' + x.id + '">' + esc(x.name) +
-      '<small>' + (x.is_available ? "Tersedia" : "Tidak tersedia") + '</small></button>';
+    var inUse = !!S.busy[x.id], ok = x.is_available && !inUse;
+    return '<button class="outlet ' + (S.outlet === x.id ? "sel" : "") + '" data-act="outlet" data-v="' + x.id + '"' + (ok ? "" : " disabled") + '>' + esc(x.name) +
+      '<small>' + (inUse ? "Sedang dipakai" : x.is_available ? "Tersedia" : "Tidak tersedia") + '</small></button>';
   }).join("");
-  var last = s && s.payment_status === "paid" ? '<p class="mute">Sesi terakhir: ' + kwh(s.used_wh) + ' Poin, ' + rp(s.amount_idr) + ' (lunas).</p>' : "";
-  return '<p class="sub">Pilih colokan, lalu tekan Mulai.</p><h2>Colokan</h2><div class="outlets">' + o + '</div>' +
+  var opts = [1000, 2500, 5000].map(function (n) {
+    return '<button class="outlet ' + (S.tgt === n ? "sel" : "") + '" data-act="tgt" data-v="' + n + '">' + poin(n) + ' poin</button>';
+  }).join("") + '<button class="outlet ' + (S.tgt === "custom" ? "sel" : "") + '" data-act="tgt" data-v="custom">Pilih sendiri</button>';
+  var cust = S.tgt === "custom" ? '<input id="cp" type="number" inputmode="numeric" min="1" max="' + S.maxWh + '" placeholder="Jumlah poin (maks ' + poin(S.maxWh) + ')" value="' + esc(S.custom) + '" style="margin-top:10px">' : "";
+  var last = s && s.payment_status === "paid" ? '<p class="mute">Sesi terakhir: ' + poin(s.used_wh) + ' Poin, ' + rp(s.amount_idr) + ' (lunas).</p>' : "";
+  return '<p class="sub">Pilih colokan dan jumlah poin, lalu tekan Mulai.</p><h2>Colokan</h2><div class="outlets">' + o + '</div>' +
+    '<h2>Jumlah poin</h2><div class="outlets">' + opts + '</div>' + cust +
     '<p class="mute">Tagihan dihitung dari pemakaian saat Stop.</p>' + last +
     '<button class="big acc" data-act="start">Mulai</button>';
 }
@@ -186,14 +198,14 @@ function adminView() {
     var pay = x.payment_status === "paid" ? "paid" : x.payment_status === "unpaid" ? "unpaid" : "";
     return '<div class="s"><div class="row sp"><b>' + esc(S.names[x.member_id] || "Member " + x.member_id) + '</b><span class="tag ' + (x.status === "running" ? "run" : pay) + '">' + esc(x.status) + '</span></div>' +
       '<div class="mute">Colokan ' + x.outlet_id + ' - ' + new Date(x.created_at).toLocaleString("id-ID") + '</div>' +
-      '<div>' + (x.used_wh != null ? kwh(x.used_wh) + ' kWh, ' + rp(x.amount_idr) : 'Target ' + kwh(x.target_wh) + ' kWh') +
-      (x.status === "running" ? ' <span class="mute">(terakhir ' + kwh((x.last_wh || x.start_wh) - x.start_wh) + ' kWh)</span>' : "") + '</div>' +
+      '<div>' + (x.used_wh != null ? poin(x.used_wh) + ' Poin, ' + rp(x.amount_idr) : 'Target ' + poin(x.target_wh) + ' Poin') +
+      (x.status === "running" ? ' <span class="mute">(terakhir ' + poin((x.last_wh || x.start_wh) - x.start_wh) + ' Poin)</span>' : "") + '</div>' +
       (x.stop_reason ? '<div class="mute">Berhenti: ' + esc(x.stop_reason) + '</div>' : "") +
       '<div class="row" style="margin-top:6px;flex-wrap:wrap">' + btn + '</div></div>';
   }).join("");
   return '<button class="big bad" data-act="off">OFF darurat colokan 1</button>' +
-    '<h2>Tarif per kWh</h2><div class="card"><div class="mute">Sekarang ' + rp(S.tariff) + '. Sesi yang sudah berjalan tidak berubah.</div>' +
-    '<div class="row" style="margin-top:8px"><input id="tf" type="number" inputmode="numeric" min="1" placeholder="Rupiah per kWh"><button data-act="tariff">Simpan tarif</button></div></div>' +
+    '<h2>Tarif per 1.000 poin</h2><div class="card"><div class="mute">Sekarang ' + rp(S.tariff) + '. Sesi yang sudah berjalan tidak berubah.</div>' +
+    '<div class="row" style="margin-top:8px"><input id="tf" type="number" inputmode="numeric" min="1" placeholder="Rupiah per 1.000 poin"><button data-act="tariff">Simpan tarif</button></div></div>' +
     '<h2>Sesi terbaru</h2><div class="card">' + (rows || '<p class="mute">Belum ada sesi.</p>') + '</div>';
 }
 
@@ -207,18 +219,26 @@ document.addEventListener("click", async function (e) {
       if (r.error) return login("Email atau password salah.");
       return boot();
     }
-    if (act === "logout") { await sb.auth.signOut(); S.user = null; S.sig = ""; return login(); }
+    if (act === "logout") { await sb.auth.signOut(); S.user = null; S.profile = null; S.sig = ""; return login(); }
     if (act === "tab") { S.tab = v; S.sig = ""; return load(); }
     if (act === "outlet") {
       var o = S.outlets.filter(function (x) { return String(x.id) === v; })[0];
       if (!o || !o.is_available) return toast("Colokan tidak tersedia");
+      if (S.busy[o.id]) return toast("Colokan sedang dipakai");
       S.outlet = o.id; S.sig = ""; return render();
+    }
+    if (act === "tgt") {
+      S.tgt = v === "custom" ? "custom" : parseInt(v, 10); S.sig = ""; return render();
     }
     if (act === "start") {
       var o2 = S.outlets.filter(function (x) { return x.id === S.outlet; })[0];
       if (!o2 || !o2.is_available) return toast("Colokan tidak tersedia");
+      if (S.busy[o2.id]) return toast("Colokan sedang dipakai");
+      var tw = S.tgt === "custom" ? parseInt(S.custom, 10) : S.tgt;
+      if (!tw || tw < 1) return toast("Isi jumlah poin");
+      if (tw > S.maxWh) return toast("Maksimal " + poin(S.maxWh) + " poin");
       b.disabled = true;
-      await api("/session", { outlet_id: S.outlet, target_wh: S.maxWh });
+      await api("/session", { outlet_id: S.outlet, target_wh: tw });
       toast("Menunggu perangkat menyalakan colokan");
     }
     if (act === "stop") {
@@ -230,7 +250,7 @@ document.addEventListener("click", async function (e) {
     if (act === "paid") await api("/admin/paid", { session_id: v });
     if (act === "cancel") await api("/admin/finish", { session_id: v, action: "cancel" });
     if (act === "finish") {
-      if (!confirm("Selesaikan sesi dengan kWh dari status terakhir perangkat?")) return;
+      if (!confirm("Selesaikan sesi dengan poin dari status terakhir perangkat?")) return;
       await api("/admin/finish", { session_id: v });
     }
     if (act === "off") {
@@ -249,6 +269,19 @@ document.addEventListener("click", async function (e) {
   } catch (err) { toast(err.message); b.disabled = false; }
 });
 
+// ===== PROFIL ANGGOTA =====
+async function loadProfile() {
+  var u = S.user, m = null;
+  async function tryQ(col, val) {
+    if (m || val == null || val === "") return;
+    try { var r = await sb.from("anggota_omb_public").select("*").eq(col, val).limit(1); if (!r.error && r.data && r.data[0]) m = r.data[0]; } catch (e) {}
+  }
+  await tryQ("user_id", u.id);
+  await tryQ("email", u.email);
+  if (!m && S.sess) await tryQ("id_anggota", S.sess.member_id);
+  S.profile = m ? { id: m.id_anggota, nama: m.nama || m.nama_lengkap || m.name } : null;
+}
+
 async function boot() {
   var s = (await sb.auth.getSession()).data.session;
   if (!s) return login();
@@ -256,7 +289,10 @@ async function boot() {
   var a = await sb.from("charge_admins").select("user_id").eq("user_id", s.user.id).maybeSingle();
   S.admin = !!(a.data);
   await load();
+  await loadProfile();
+  S.sig = ""; render();
 }
+document.addEventListener("input", function (e) { if (e.target.id === "cp") S.custom = e.target.value; });
 setInterval(function () { if (S.user && document.visibilityState === "visible") load(); }, 4000);
 boot();
 </script>
