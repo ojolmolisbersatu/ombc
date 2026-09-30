@@ -123,7 +123,9 @@ async function load() {
   S.tariff = q[1].data && q[1].data[0] ? q[1].data[0].price_per_kwh : 0;
   S.maxWh = q[2].data ? q[2].data.max_target_wh : 5000;
   S.sess = q[3].data && q[3].data[0] ? q[3].data[0] : null;
-  var bz = await sb.from("charge_sessions").select("outlet_id").in("status", ["pending", "running"]);
+  // Utamakan RPC charge_busy_outlets() (bisa dibaca semua user, tanpa membuka data sesi orang lain).
+  var bz = await sb.rpc("charge_busy_outlets");
+  if (bz.error) bz = await sb.from("charge_sessions").select("outlet_id").in("status", ["pending", "running"]);
   S.busy = {};
   (bz.data || []).forEach(function (x) { S.busy[x.outlet_id] = true; });
   if (S.admin && S.tab === "admin") {
@@ -251,8 +253,8 @@ document.addEventListener("click", async function (e) {
     if (act === "stop") {
       if (!confirm("Hentikan pengisian sekarang?")) return;
       b.disabled = true;
-      await api("/session/stop", {});
-      toast("Perintah stop dikirim");
+      var sr = await api("/session/stop", {});
+      toast(sr.action === "pending_cancelled" ? "Sesi dibatalkan" : "Perintah stop dikirim");
     }
     if (act === "paid") await api("/admin/paid", { session_id: v });
     if (act === "cancel") await api("/admin/finish", { session_id: v, action: "cancel" });
@@ -279,6 +281,12 @@ document.addEventListener("click", async function (e) {
 // ===== PROFIL ANGGOTA (tabel anggota_omb: id_anggota, nama_panggilan) =====
 async function loadProfile() {
   var u = S.user, m = null, errs = [];
+  // Utamakan RPC my_member() (charge_profiles -> anggota_omb), aman untuk user biasa.
+  try {
+    var rp0 = await sb.rpc("my_member");
+    if (!rp0.error && rp0.data && rp0.data[0]) { S.profile = { id: rp0.data[0].id_anggota, nama: rp0.data[0].nama_panggilan }; return; }
+    if (rp0.error) errs.push("my_member: " + rp0.error.message);
+  } catch (e) { errs.push("my_member: " + e.message); }
   async function tryQ(col, val) {
     if (m || val == null || val === "") return;
     try {
