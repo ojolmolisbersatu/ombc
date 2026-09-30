@@ -1,0 +1,13 @@
+{
+  "appId": "id.omb.service",
+  "appName": "OMB Service",
+  "webDir": "www",
+  "server": {
+    "url": "https://ojolmolisbersatu.github.io/ombc/",
+    "androidScheme": "https",
+    "errorPath": "offline.html"
+  },
+  "android": {
+    "backgroundColor": "#0f2a22"
+  }
+}
