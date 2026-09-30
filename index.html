@@ -50,6 +50,13 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--acc);outline-of
 .s{border-top:1px solid var(--line);padding:12px 0}.s:first-child{border-top:0}
 .mute{color:var(--mute);font-size:14px}
 .hi{margin:0 0 12px}.hi b{font-size:18px}.hi .tag{margin-left:6px}
+.admin-menu{position:sticky;top:0;z-index:8;background:var(--bg);padding:8px 0 10px;margin:0 -2px 4px}
+.admin-menu-inner{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.admin-menu button{padding:11px 8px;font-size:13px;line-height:1.15;min-height:46px}
+.admin-menu button.active{background:var(--acc);color:var(--accink);border-color:var(--acc)}
+.admin-section-title{margin-top:14px}
+@media(max-width:380px){.admin-menu-inner{grid-template-columns:1fr}.admin-menu button{min-height:42px}}
+
 </style>
 </head>
 <body>
@@ -65,7 +72,7 @@ var API = SUPABASE_URL + "/functions/v1/charge-api";
 
 var sb = supabase.createClient(SUPABASE_URL, ANON_KEY);
 var $app = document.getElementById("app");
-var S = { user: null, admin: false, tab: "charge", outlets: [], tariff: 0, maxWh: 5000, sess: null, all: [], names: {}, outlet: 1, sig: "", profile: null, busy: {}, tgt: 1000, custom: "", pwOpen: false, np1: "", np2: "", members: null, msq: "", unl: null, asq: "" };
+var S = { user: null, admin: false, tab: "charge", adminMenu: "sessions", outlets: [], tariff: 0, maxWh: 5000, sess: null, all: [], names: {}, outlet: 1, sig: "", profile: null, busy: {}, tgt: 1000, custom: "", pwOpen: false, np1: "", np2: "", members: null, msq: "", unl: null, asq: "" };
 
 function esc(t) { return String(t == null ? "" : t).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
 function rp(n) { return "Rp" + Number(n || 0).toLocaleString("id-ID"); }
@@ -141,7 +148,7 @@ async function load() {
   if (S.admin && S.tab === "admin" && S.unl === null) {
     try { S.unl = (await api("/admin/unlinked")).anggota || []; } catch (e) { S.unl = []; toast("Daftar anggota gagal dimuat: " + e.message); }
   }
-  var sig = JSON.stringify([S.sess, S.all, S.tariff, S.tab, S.outlets, S.busy, S.members, S.unl, S.pwOpen]);
+  var sig = JSON.stringify([S.sess, S.all, S.tariff, S.tab, S.adminMenu, S.outlets, S.busy, S.members, S.unl, S.pwOpen]);
   var typing = document.activeElement && document.activeElement.tagName === "INPUT";
   if (sig !== S.sig && !typing) { S.sig = sig; render(); } // tunda render saat pengguna sedang mengetik
 }
@@ -256,15 +263,35 @@ function adminView() {
       (x.stop_reason ? '<div class="mute">Berhenti: ' + esc(x.stop_reason) + '</div>' : "") +
       '<div class="row" style="margin-top:6px;flex-wrap:wrap">' + btn + '</div></div>';
   }).join("");
-  return '<button class="big bad" data-act="off">OFF darurat colokan 1</button>' +
+
+  var menu =
+    '<div class="admin-menu"><div class="admin-menu-inner">' +
+      '<button class="' + (S.adminMenu === "add" ? "active" : "") + '" data-act="adminmenu" data-v="add">➕<br>Tambah anggota</button>' +
+      '<button class="' + (S.adminMenu === "reset" ? "active" : "") + '" data-act="adminmenu" data-v="reset">🔑<br>Reset anggota</button>' +
+      '<button class="' + (S.adminMenu === "sessions" ? "active" : "") + '" data-act="adminmenu" data-v="sessions">🕘<br>Sesi terbaru</button>' +
+    '</div></div>';
+
+  var common =
+    '<button class="big bad" data-act="off">OFF darurat colokan 1</button>' +
     '<h2>Tarif per 1.000 poin</h2><div class="card"><div class="mute">Sekarang ' + rp(S.tariff) + '. Sesi yang sudah berjalan tidak berubah.</div>' +
-    '<div class="row" style="margin-top:8px"><input id="tf" type="number" inputmode="numeric" min="1" placeholder="Rupiah per 1.000 poin"><button data-act="tariff">Simpan tarif</button></div></div>' +
-    '<h2>Tambah akun anggota</h2><div class="card"><div class="mute">Anggota yang belum punya akun login.</div>' +
+    '<div class="row" style="margin-top:8px"><input id="tf" type="number" inputmode="numeric" min="1" placeholder="Rupiah per 1.000 poin"><button data-act="tariff">Simpan tarif</button></div></div>';
+
+  var addSection =
+    '<h2 class="admin-section-title">Tambah akun anggota</h2><div class="card"><div class="mute">Anggota yang belum punya akun login.</div>' +
     '<input id="as" type="search" placeholder="Cari nama atau ID anggota" value="' + esc(S.asq) + '" style="margin-top:8px">' +
-    '<div id="alist">' + unlinkedRows() + '</div></div>' +
-    '<h2>Reset password anggota</h2><div class="card"><input id="ms" type="search" placeholder="Cari nama, ID anggota, atau email" value="' + esc(S.msq) + '">' +
-    '<div id="mlist">' + memberRows() + '</div></div>' +
-    '<h2>Sesi terbaru</h2><div class="card">' + (rows || '<p class="mute">Belum ada sesi.</p>') + '</div>';
+    '<div id="alist">' + unlinkedRows() + '</div></div>';
+
+  var resetSection =
+    '<h2 class="admin-section-title">Reset password anggota</h2><div class="card"><input id="ms" type="search" placeholder="Cari nama, ID anggota, atau email" value="' + esc(S.msq) + '">' +
+    '<div id="mlist">' + memberRows() + '</div></div>';
+
+  var sessionSection =
+    '<h2 class="admin-section-title">Sesi terbaru</h2><div class="card">' +
+    (rows || '<p class="mute">Belum ada sesi.</p>') + '</div>';
+
+  var section = S.adminMenu === "add" ? addSection : (S.adminMenu === "reset" ? resetSection : sessionSection);
+
+  return menu + common + section;
 }
 
 // ===== AKSI =====
@@ -278,7 +305,17 @@ document.addEventListener("click", async function (e) {
       return boot();
     }
     if (act === "logout") { await sb.auth.signOut(); S.user = null; S.profile = null; S.members = null; S.unl = null; S.pwOpen = false; S.np1 = ""; S.np2 = ""; S.sig = ""; return login(); }
-    if (act === "tab") { S.tab = v; S.sig = ""; return load(); }
+    if (act === "tab") {
+      S.tab = v;
+      if (v === "admin") S.adminMenu = "sessions";
+      S.sig = "";
+      return load();
+    }
+    if (act === "adminmenu") {
+      S.adminMenu = v || "sessions";
+      S.sig = "";
+      return render();
+    }
     if (act === "outlet") {
       var o = S.outlets.filter(function (x) { return String(x.id) === v; })[0];
       if (!o || !o.is_available) return toast("Colokan tidak tersedia");
