@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>OMB Charge</title>
+<title>OMB Service</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap">
 <style>
 :root{--bg:#eef2ee;--ink:#0f2a22;--mute:#5d6f68;--card:#fff;--line:#d3ddd7;--acc:#f2b705;--accink:#2b2100;--ok:#1b7a4b;--bad:#b3261e}
@@ -157,14 +157,14 @@ function userView() {
     var used = s.status === "running" ? Math.max(0, (s.last_wh || s.start_wh) - s.start_wh) : 0;
     return '<p class="sub">Colokan ' + s.outlet_id + '</p><div class="card"><span class="tag run">' +
       (s.status === "pending" ? "Menunggu perangkat" : s.stop_requested_at ? "Menghentikan..." : "Sedang mengisi") + '</span>' +
-      '<div class="num">' + kwh(used) + ' <small class="mute">kWh</small></div>' +
+      '<div class="num">' + kwh(used) + ' <small class="mute">Poin</small></div>' +
       '<div class="mute">Perkiraan biaya ' + rp(Math.ceil(used * s.tariff_per_kwh / 1000 / 100) * 100) + '</div>' +
       '<p class="mute">Berhenti saat Anda menekan Stop, atau otomatis jika tidak ada aliran listrik 10 detik.</p>' +
       '<button class="big bad" data-act="stop"' + (s.stop_requested_at ? " disabled" : "") + '>Stop</button></div>';
   }
   if (s && s.payment_status === "unpaid") {
     return '<p class="sub">Tagihan belum lunas</p><div class="card"><span class="tag unpaid">Belum dibayar</span>' +
-      '<div class="num">' + rp(s.amount_idr) + '</div><div class="mute">' + kwh(s.used_wh) + ' kWh x ' + rp(s.tariff_per_kwh) + '/kWh</div>' +
+      '<div class="num">' + rp(s.amount_idr) + '</div><div class="mute">' + kwh(s.used_wh) + ' Poin</div>' +
       '<div id="qr"></div><p class="mute">Bayar lewat QRIS di atas. Admin akan memverifikasi pembayaran secara manual, lalu Anda bisa mengisi lagi.</p></div>';
   }
   var o = S.outlets.map(function (x) {
@@ -173,7 +173,7 @@ function userView() {
   }).join("");
   var last = s && s.payment_status === "paid" ? '<p class="mute">Sesi terakhir: ' + kwh(s.used_wh) + ' kWh, ' + rp(s.amount_idr) + ' (lunas).</p>' : "";
   return '<p class="sub">Pilih colokan, lalu tekan Mulai.</p><h2>Colokan</h2><div class="outlets">' + o + '</div>' +
-    '<p class="mute">Tarif ' + rp(S.tariff) + '/kWh. Tagihan dihitung dari pemakaian saat Stop.</p>' + last +
+    '<p class="mute">Tagihan dihitung dari pemakaian saat Stop.</p>' + last +
     '<button class="big acc" data-act="start">Mulai</button>';
 }
 
