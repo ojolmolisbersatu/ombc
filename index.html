@@ -128,7 +128,7 @@ async function load() {
 
 // ===== TAMPILAN =====
 function login(err) {
-  $app.innerHTML = '<h1>OMB Charge</h1><p class="sub">Masuk dengan akun anggota.</p><div class="card">' +
+  $app.innerHTML = '<h1>OMB Service</h1><p class="sub">Masuk dengan akun anggota.</p><div class="card">' +
     '<label class="mute" for="em">Email</label><input id="em" type="email" autocomplete="username">' +
     '<label class="mute" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password">' +
     '<p class="mute" style="color:var(--bad)">' + esc(err || "") + '</p>' +
@@ -138,7 +138,7 @@ function login(err) {
 function head() {
   var t = S.admin ? '<div class="tabs"><button class="' + (S.tab === "charge" ? "" : "ghost") + '" data-act="tab" data-v="charge">Cas</button>' +
     '<button class="' + (S.tab === "admin" ? "" : "ghost") + '" data-act="tab" data-v="admin">Admin</button></div>' : "";
-  return '<div class="row sp"><h1>OMB Charge</h1><button class="ghost sm" data-act="logout">Keluar</button></div>' + t;
+  return '<div class="row sp"><h1>OMB Service</h1><button class="ghost sm" data-act="logout">Keluar</button></div>' + t;
 }
 
 function render() {
@@ -171,7 +171,7 @@ function userView() {
     return '<button class="outlet ' + (S.outlet === x.id ? "sel" : "") + '" data-act="outlet" data-v="' + x.id + '">' + esc(x.name) +
       '<small>' + (x.is_available ? "Tersedia" : "Tidak tersedia") + '</small></button>';
   }).join("");
-  var last = s && s.payment_status === "paid" ? '<p class="mute">Sesi terakhir: ' + kwh(s.used_wh) + ' kWh, ' + rp(s.amount_idr) + ' (lunas).</p>' : "";
+  var last = s && s.payment_status === "paid" ? '<p class="mute">Sesi terakhir: ' + kwh(s.used_wh) + ' Poin, ' + rp(s.amount_idr) + ' (lunas).</p>' : "";
   return '<p class="sub">Pilih colokan, lalu tekan Mulai.</p><h2>Colokan</h2><div class="outlets">' + o + '</div>' +
     '<p class="mute">Tagihan dihitung dari pemakaian saat Stop.</p>' + last +
     '<button class="big acc" data-act="start">Mulai</button>';
