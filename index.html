@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>OMB Service</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f2a22">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="OMB">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap">
 <style>
 :root{--bg:#eef2ee;--ink:#0f2a22;--mute:#5d6f68;--card:#fff;--line:#d3ddd7;--acc:#f2b705;--accink:#2b2100;--ok:#1b7a4b;--bad:#b3261e}
@@ -301,6 +308,7 @@ async function boot() {
 document.addEventListener("input", function (e) { if (e.target.id === "cp") S.custom = e.target.value; });
 setInterval(function () { if (S.user && document.visibilityState === "visible") load(); }, 4000);
 boot();
+if ("serviceWorker" in navigator) window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); });
 </script>
 </body>
 </html>
