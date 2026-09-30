@@ -65,7 +65,7 @@ var API = SUPABASE_URL + "/functions/v1/charge-api";
 
 var sb = supabase.createClient(SUPABASE_URL, ANON_KEY);
 var $app = document.getElementById("app");
-var S = { user: null, admin: false, tab: "charge", outlets: [], tariff: 0, maxWh: 5000, sess: null, all: [], names: {}, outlet: 1, sig: "", profile: null, busy: {}, tgt: 1000, custom: "", pwOpen: false, np1: "", np2: "", members: null, msq: "" };
+var S = { user: null, admin: false, tab: "charge", outlets: [], tariff: 0, maxWh: 5000, sess: null, all: [], names: {}, outlet: 1, sig: "", profile: null, busy: {}, tgt: 1000, custom: "", pwOpen: false, np1: "", np2: "", members: null, msq: "", unl: null, asq: "" };
 
 function esc(t) { return String(t == null ? "" : t).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
 function rp(n) { return "Rp" + Number(n || 0).toLocaleString("id-ID"); }
@@ -138,7 +138,10 @@ async function load() {
   if (S.admin && S.tab === "admin" && S.members === null) {
     try { S.members = (await api("/admin/members")).members || []; } catch (e) { S.members = []; toast("Daftar anggota gagal dimuat: " + e.message); }
   }
-  var sig = JSON.stringify([S.sess, S.all, S.tariff, S.tab, S.outlets, S.busy, S.members, S.pwOpen]);
+  if (S.admin && S.tab === "admin" && S.unl === null) {
+    try { S.unl = (await api("/admin/unlinked")).anggota || []; } catch (e) { S.unl = []; toast("Daftar anggota gagal dimuat: " + e.message); }
+  }
+  var sig = JSON.stringify([S.sess, S.all, S.tariff, S.tab, S.outlets, S.busy, S.members, S.unl, S.pwOpen]);
   var typing = document.activeElement && document.activeElement.tagName === "INPUT";
   if (sig !== S.sig && !typing) { S.sig = sig; render(); } // tunda render saat pengguna sedang mengetik
 }
@@ -219,6 +222,19 @@ function memberRows() {
   }).join("");
 }
 
+function unlinkedRows() {
+  if (S.unl === null) return '<p class="mute">Memuat...</p>';
+  var q = S.asq.trim().toLowerCase();
+  var list = S.unl.filter(function (m) {
+    return !q || [m.nama_panggilan, m.nama, m.id_anggota].join(" ").toLowerCase().indexOf(q) >= 0;
+  }).slice(0, 30);
+  if (!list.length) return '<p class="mute">Semua anggota sudah punya akun.</p>';
+  return list.map(function (m) {
+    return '<div class="s"><div class="row sp"><div><b>' + esc(m.nama_panggilan || m.nama || "-") + '</b> <span class="mute">' + esc(m.id_anggota || "") + '</span></div>' +
+      '<button class="sm" data-act="mkuser" data-v="' + esc(m.id) + '">Buat akun</button></div></div>';
+  }).join("");
+}
+
 function genPw() {
   var a = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789", r = new Uint32Array(10), o = "";
   crypto.getRandomValues(r);
@@ -243,6 +259,9 @@ function adminView() {
   return '<button class="big bad" data-act="off">OFF darurat colokan 1</button>' +
     '<h2>Tarif per 1.000 poin</h2><div class="card"><div class="mute">Sekarang ' + rp(S.tariff) + '. Sesi yang sudah berjalan tidak berubah.</div>' +
     '<div class="row" style="margin-top:8px"><input id="tf" type="number" inputmode="numeric" min="1" placeholder="Rupiah per 1.000 poin"><button data-act="tariff">Simpan tarif</button></div></div>' +
+    '<h2>Tambah akun anggota</h2><div class="card"><div class="mute">Anggota yang belum punya akun login.</div>' +
+    '<input id="as" type="search" placeholder="Cari nama atau ID anggota" value="' + esc(S.asq) + '" style="margin-top:8px">' +
+    '<div id="alist">' + unlinkedRows() + '</div></div>' +
     '<h2>Reset password anggota</h2><div class="card"><input id="ms" type="search" placeholder="Cari nama, ID anggota, atau email" value="' + esc(S.msq) + '">' +
     '<div id="mlist">' + memberRows() + '</div></div>' +
     '<h2>Sesi terbaru</h2><div class="card">' + (rows || '<p class="mute">Belum ada sesi.</p>') + '</div>';
@@ -258,7 +277,7 @@ document.addEventListener("click", async function (e) {
       if (r.error) return login("Email atau password salah.");
       return boot();
     }
-    if (act === "logout") { await sb.auth.signOut(); S.user = null; S.profile = null; S.members = null; S.pwOpen = false; S.np1 = ""; S.np2 = ""; S.sig = ""; return login(); }
+    if (act === "logout") { await sb.auth.signOut(); S.user = null; S.profile = null; S.members = null; S.unl = null; S.pwOpen = false; S.np1 = ""; S.np2 = ""; S.sig = ""; return login(); }
     if (act === "tab") { S.tab = v; S.sig = ""; return load(); }
     if (act === "outlet") {
       var o = S.outlets.filter(function (x) { return String(x.id) === v; })[0];
@@ -278,6 +297,23 @@ document.addEventListener("click", async function (e) {
         throw new Error(/same/i.test(em) ? "Password baru tidak boleh sama dengan yang lama" : "Gagal mengubah password: " + em);
       }
       S.pwOpen = false; S.np1 = ""; S.np2 = ""; S.sig = ""; render(); return toast("Password berhasil diubah");
+    }
+    if (act === "mkuser") {
+      var am = (S.unl || []).filter(function (m) { return String(m.id) === v; })[0];
+      if (!am) return;
+      var an = am.nama_panggilan || am.nama || "anggota";
+      var em0 = String(an).toLowerCase().replace(/[^a-z0-9]+/g, "") + "@omb.id";
+      var em = prompt("Email login untuk " + an + " (" + am.id_anggota + "):", em0);
+      if (em === null) return;
+      em = em.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) return toast("Format email tidak valid");
+      var pw0 = prompt("Password awal (minimal 8 karakter). Boleh diganti:", genPw());
+      if (pw0 === null) return;
+      pw0 = pw0.trim();
+      if (pw0.length < 8) return toast("Password minimal 8 karakter");
+      await api("/admin/create-user", { member_id: am.id, email: em, password: pw0 });
+      alert("Akun " + an + " berhasil dibuat.\n\nEmail: " + em + "\nPassword: " + pw0 + "\n\nSampaikan ke anggota, lalu minta segera menggantinya lewat tombol Password.");
+      S.unl = null; S.members = null; S.sig = ""; return load();
     }
     if (act === "resetpw") {
       var mem = (S.members || []).filter(function (m) { return m.user_id === v; })[0];
@@ -372,6 +408,7 @@ document.addEventListener("input", function (e) {
   if (id === "cp") S.custom = e.target.value;
   if (id === "np1") S.np1 = e.target.value;
   if (id === "np2") S.np2 = e.target.value;
+  if (id === "as") { S.asq = e.target.value; var al = document.getElementById("alist"); if (al) al.innerHTML = unlinkedRows(); }
   if (id === "ms") { S.msq = e.target.value; var ml = document.getElementById("mlist"); if (ml) ml.innerHTML = memberRows(); }
 });
 setInterval(function () { if (S.user && document.visibilityState === "visible") load(); }, 4000);
