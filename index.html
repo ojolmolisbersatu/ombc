@@ -102,7 +102,7 @@ var API = SUPABASE_URL + "/functions/v1/charge-api";
 
 var sb = supabase.createClient(SUPABASE_URL, ANON_KEY);
 var $app = document.getElementById("app");
-var S = { user: null, admin: false, tab: "charge", adminMenu: "sessions", outlets: [], tariff: 0, maxWh: 5000, sess: null, all: [], names: {}, outlet: 1, sig: "", profile: null, busy: {}, tgt: null, custom: "", pwOpen: false, np1: "", np2: "", members: null, msq: "", unl: null, asq: "", coin: null, topup: null, tops: [], unpaid: [], ledger: [], rtab: "sesi", topupOpen: false, tamt: 0, tsq: "", exFrom: "", exTo: "", exUser: "", pwShow: {} };
+var S = { user: null, admin: false, tab: "charge", adminMenu: "sessions", outlets: [], tariff: 0, maxWh: 5000, sess: null, all: [], names: {}, outlet: 1, sig: "", profile: null, busy: {}, tgt: null, custom: "", pwOpen: false, np1: "", np2: "", members: null, msq: "", unl: null, asq: "", coin: null, topup: null, tops: [], unpaid: [], ledger: [], rtab: "sesi", topupOpen: false, tamt: 0, tsq: "", exFrom: "", exTo: "", exUser: "", pwShow: {}, wallets: {} };
 (function () { var n = new Date(); S.exTo = ymd(n); S.exFrom = ymd(new Date(n.getFullYear(), n.getMonth(), 1)); })();
 
 function esc(t) { return String(t == null ? "" : t).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
@@ -191,6 +191,8 @@ async function load() {
   if (S.admin && S.tab === "admin") {
     var a = await sb.from("charge_sessions").select("*").order("created_at", { ascending: false }).limit(30);
     S.all = a.data || [];
+    var wl = await sb.from("charge_wallets").select("user_id,balance").range(0, 999);
+    if (!wl.error) { S.wallets = {}; (wl.data || []).forEach(function (x) { S.wallets[x.user_id] = Number(x.balance); }); }
     var ids = S.all.concat(S.unpaid).map(function (x) { return x.member_id; });
     var m = await sb.from("anggota_omb").select("id,nama").in("id", ids);
     if (m.data) m.data.forEach(function (x) { S.names[x.id] = x.nama; });
@@ -201,7 +203,7 @@ async function load() {
   if (S.admin && S.tab === "admin" && S.unl === null) {
     try { S.unl = (await api("/admin/unlinked")).anggota || []; } catch (e) { S.unl = []; toast("Daftar anggota gagal dimuat: " + e.message); }
   }
-  var sig = JSON.stringify([S.sess, S.all, S.tariff, S.tab, S.adminMenu, S.outlets, S.busy, S.members, S.unl, S.pwOpen, S.hist, S.coin, S.topup, S.tops, S.unpaid, S.ledger, S.rtab, S.topupOpen]);
+  var sig = JSON.stringify([S.sess, S.all, S.tariff, S.tab, S.adminMenu, S.outlets, S.busy, S.members, S.unl, S.pwOpen, S.hist, S.wallets, S.coin, S.topup, S.tops, S.unpaid, S.ledger, S.rtab, S.topupOpen]);
   var typing = document.activeElement && document.activeElement.tagName === "INPUT";
   if (sig !== S.sig && !typing) { S.sig = sig; render(); } // tunda render saat pengguna sedang mengetik
 }
@@ -506,15 +508,17 @@ function who(uid) {
 }
 function dt(x) { return new Date(x).toLocaleString("id-ID", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); }
 
+function bal(uid) { return S.wallets[uid] || 0; }
+function cf(n) { return Number(n || 0).toLocaleString("id-ID"); }
 function tsRows() {
   if (S.members === null) return '<p class="mute">Memuat...</p>';
   var q = S.tsq.trim().toLowerCase();
   var list = S.members.filter(function (m) {
     return !q || [m.nama_panggilan, m.id_anggota, m.email].join(" ").toLowerCase().indexOf(q) >= 0;
-  }).slice(0, 20);
+  }).sort(function (a, b) { return bal(b.user_id) - bal(a.user_id); }).slice(0, 20);
   if (!list.length) return '<p class="mute">Tidak ada anggota ditemukan.</p>';
   return list.map(function (m) {
-    return '<div class="s"><div class="row sp"><div><b>' + esc(m.nama_panggilan || m.nama || "-") + '</b> <span class="mute">' + esc(m.id_anggota || "") + '</span></div>' +
+    return '<div class="s"><div class="row sp"><div><b>' + esc(m.nama_panggilan || m.nama || "-") + '</b> <span class="mute">' + esc(m.id_anggota || "") + '</span><div class="mute">Saldo <b class="' + (bal(m.user_id) > 0 ? "pos" : "") + '">' + cf(bal(m.user_id)) + ' Coin</b></div></div>' +
       '<button class="sm" data-act="topupman" data-v="' + esc(m.user_id) + '">Isi saldo</button></div></div>';
   }).join("");
 }
@@ -552,13 +556,15 @@ function adminView() {
     '<h2>Tarif per 1.000 poin</h2><div class="card"><div class="mute">Sekarang ' + rp(S.tariff) + '. Sesi yang sudah berjalan tidak berubah.</div>' +
     '<div class="row" style="margin-top:8px"><input id="tf" type="number" inputmode="numeric" min="1" placeholder="Rupiah per 1.000 poin"><button data-act="tariff">Simpan tarif</button></div></div>';
 
+  var totalCoin = { sum: 0, n: 0 };
+  Object.keys(S.wallets).forEach(function (k) { if (S.wallets[k] > 0) { totalCoin.sum += S.wallets[k]; totalCoin.n++; } });
   var topupSection =
     '<h2 class="admin-section-title">Request isi saldo (' + S.tops.length + ')</h2><div class="card warnbox">' +
     (S.tops.length ? S.tops.map(function (x) {
-      return '<div class="s"><div class="row sp"><div><b>' + esc(who(x.user_id)) + '</b><div class="mute">' + dt(x.created_at) + '</div></div>' +
+      return '<div class="s"><div class="row sp"><div><b>' + esc(who(x.user_id)) + '</b><div class="mute">' + dt(x.created_at) + '</div><div class="mute">Saldo saat ini: ' + cf(bal(x.user_id)) + ' Coin</div></div>' +
         '<div style="text-align:right"><b>' + rp(x.amount) + '</b><br><button class="sm acc" style="margin-top:6px" data-act="topupok" data-v="' + x.id + '">Konfirmasi</button></div></div></div>';
     }).join("") : '<p class="mute">Tidak ada permintaan yang menunggu.</p>') + '</div>' +
-    '<h2>Isi saldo manual</h2><div class="card"><div class="mute">Untuk pembayaran tunai atau koreksi saldo.</div>' +
+    '<h2>Saldo anggota</h2><div class="card"><div class="mute">Total beredar <b>' + cf(totalCoin.sum) + ' Coin</b> · ' + totalCoin.n + ' anggota punya saldo. Isi manual untuk pembayaran tunai atau koreksi.</div>' +
     '<input id="ts" type="search" placeholder="Cari nama, ID anggota, atau email" value="' + esc(S.tsq) + '" style="margin-top:8px"><div id="tlist">' + tsRows() + '</div></div>';
 
   var addSection =
