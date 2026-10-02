@@ -27,12 +27,20 @@ jobs:
       - name: Pasang dependensi
         run: npm install
 
+      - name: Pasang plugin splash screen (versi sama dengan Capacitor)
+        run: |
+          CAP=$(node -p "require('@capacitor/core/package.json').version.split('.')[0]")
+          npm install @capacitor/splash-screen@$CAP
+
       - name: Buat proyek Android
         run: npx cap add android
 
       - name: Ikon dan splash screen
         continue-on-error: true   # kalau gagal, APK tetap jadi dengan ikon bawaan
         run: npx --yes @capacitor/assets@3 generate --android
+
+      - name: Cek hasil ikon dan splash
+        run: find android/app/src/main/res -name "splash.png" -o -name "ic_launcher*.png" | sort | head -30
 
       - name: Sinkronkan
         run: npx cap sync android
