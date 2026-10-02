@@ -80,6 +80,8 @@ main{padding-bottom:calc(96px + env(safe-area-inset-bottom))}
 .toast{bottom:calc(84px + env(safe-area-inset-bottom))}
 .badge{position:absolute;top:-6px;right:-4px;background:var(--bad);color:#fff;border-radius:99px;font-size:11px;min-width:18px;height:18px;line-height:18px;padding:0 5px;text-align:center}
 .nav button{position:relative}.nav .badge{top:0;right:4px}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}.seg button{background:transparent;color:var(--ink);border:1px solid var(--line)}.seg button.sel{background:var(--grad);color:#fff;border-color:transparent}
+.pos{color:var(--ok)}.neg{color:var(--bad)}
 .warnbox{border:2px solid var(--warn);background:#FFFBEB}
 .warnbox .s{border-color:#F3E3B5}
 </style>
@@ -97,7 +99,7 @@ var API = SUPABASE_URL + "/functions/v1/charge-api";
 
 var sb = supabase.createClient(SUPABASE_URL, ANON_KEY);
 var $app = document.getElementById("app");
-var S = { user: null, admin: false, tab: "charge", adminMenu: "sessions", outlets: [], tariff: 0, maxWh: 5000, sess: null, all: [], names: {}, outlet: 1, sig: "", profile: null, busy: {}, tgt: null, custom: "", pwOpen: false, np1: "", np2: "", members: null, msq: "", unl: null, asq: "", coin: null, topup: null, tops: [], unpaid: [], thist: [], topupOpen: false, tamt: 0, tsq: "" };
+var S = { user: null, admin: false, tab: "charge", adminMenu: "sessions", outlets: [], tariff: 0, maxWh: 5000, sess: null, all: [], names: {}, outlet: 1, sig: "", profile: null, busy: {}, tgt: null, custom: "", pwOpen: false, np1: "", np2: "", members: null, msq: "", unl: null, asq: "", coin: null, topup: null, tops: [], unpaid: [], ledger: [], rtab: "sesi", topupOpen: false, tamt: 0, tsq: "" };
 
 function esc(t) { return String(t == null ? "" : t).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
 function rp(n) { return "Rp" + Number(n || 0).toLocaleString("id-ID"); }
@@ -167,8 +169,8 @@ async function load() {
   if (S.tab === "riwayat") {
     var hq = await sb.from("charge_sessions").select("*").eq("user_id", u).order("created_at", { ascending: false }).limit(30);
     S.hist = hq.data || [];
-    var tq = await sb.from("charge_topups").select("*").eq("user_id", u).order("created_at", { ascending: false }).limit(10);
-    S.thist = tq.data || [];
+    var lq = await sb.from("charge_coin_ledger").select("*").eq("user_id", u).order("id", { ascending: false }).limit(50);
+    S.ledger = lq.data || [];
   }
   // Utamakan RPC charge_busy_outlets() (bisa dibaca semua user, tanpa membuka data sesi orang lain).
   var bz = await sb.rpc("charge_busy_outlets");
@@ -195,7 +197,7 @@ async function load() {
   if (S.admin && S.tab === "admin" && S.unl === null) {
     try { S.unl = (await api("/admin/unlinked")).anggota || []; } catch (e) { S.unl = []; toast("Daftar anggota gagal dimuat: " + e.message); }
   }
-  var sig = JSON.stringify([S.sess, S.all, S.tariff, S.tab, S.adminMenu, S.outlets, S.busy, S.members, S.unl, S.pwOpen, S.hist, S.coin, S.topup, S.tops, S.unpaid, S.thist, S.topupOpen]);
+  var sig = JSON.stringify([S.sess, S.all, S.tariff, S.tab, S.adminMenu, S.outlets, S.busy, S.members, S.unl, S.pwOpen, S.hist, S.coin, S.topup, S.tops, S.unpaid, S.ledger, S.rtab, S.topupOpen]);
   var typing = document.activeElement && document.activeElement.tagName === "INPUT";
   if (sig !== S.sig && !typing) { S.sig = sig; render(); } // tunda render saat pengguna sedang mengetik
 }
@@ -290,15 +292,6 @@ function topupView() {
     '<button class="big ghost" style="margin-top:10px" data-act="topupback">Kembali</button>';
 }
 
-function topupHist() {
-  var t = S.thist || [];
-  if (!t.length) return "";
-  return '<h2>Isi Saldo</h2>' + t.map(function (x) {
-    var tg = x.status === "paid" ? '<span class="tag paid">Berhasil</span>' : x.status === "pending" ? '<span class="tag unpaid">Menunggu</span>' : '<span class="tag">Dibatalkan</span>';
-    return '<div class="card"><div class="row sp"><b>+' + Number(x.amount).toLocaleString("id-ID") + ' Coin</b>' + tg + '</div><div class="mute">' + dt(x.created_at) + '</div></div>';
-  }).join("");
-}
-
 function userView() {
   var s = S.sess;
   if (s && (s.status === "pending" || s.status === "running")) {
@@ -344,17 +337,28 @@ function userView() {
     '<button id="startBtn" class="big acc" data-act="start"' + (tgtVal() ? "" : " disabled") + '>⚡ MULAI</button>';
 }
 
+function coinHist() {
+  var l = S.ledger || [];
+  var kinds = { topup: "Isi saldo", spend: "Pemakaian saldo", adjust: "Koreksi saldo" };
+  return coinCard() + pendTop() + '<h2>Mutasi Coin</h2>' + (l.length ? l.map(function (x) {
+    var d = Number(x.delta), note = x.kind === "spend" && x.session_id ? "Bayar sesi charge #" + String(x.session_id).slice(-6).toUpperCase() : (x.note || "");
+    return '<div class="card"><div class="row sp"><b>' + (kinds[x.kind] || "Mutasi") + '</b><b class="' + (d >= 0 ? "pos" : "neg") + '">' + (d >= 0 ? "+" : "-") + Math.abs(d).toLocaleString("id-ID") + ' Coin</b></div>' +
+      '<div class="mute">' + dt(x.created_at) + (note ? " · " + esc(note) : "") + '</div><div class="mute">Saldo setelahnya: ' + Number(x.balance_after).toLocaleString("id-ID") + ' Coin</div></div>';
+  }).join("") : '<p class="mute">Belum ada mutasi coin.</p>');
+}
+
 function histView() {
   var h = S.hist || [];
-  return '<h2>Riwayat</h2>' + (h.length ? h.map(function (x) {
+  var seg = '<div class="seg"><button class="' + (S.rtab === "sesi" ? "sel" : "") + '" data-act="rtab" data-v="sesi">Pengisian</button><button class="' + (S.rtab === "coin" ? "sel" : "") + '" data-act="rtab" data-v="coin">Saldo Coin</button></div>';
+  if (S.rtab === "coin") return '<h2>Riwayat</h2>' + seg + coinHist();
+  return '<h2>Riwayat</h2>' + seg + (h.length ? h.map(function (x) {
     var run = x.status === "pending" || x.status === "running";
     var tg = run ? '<span class="tag run">Berjalan</span>' : x.payment_status === "paid" ? '<span class="tag paid">Lunas</span>' :
       x.payment_status === "unpaid" ? '<span class="tag unpaid">Belum bayar</span>' : '<span class="tag">' + esc(x.status) + '</span>';
-    return '<div class="card"><div class="row sp"><b>Colokan ' + x.outlet_id + '</b>' + tg + '</div><div class="mute">' +
-      new Date(x.created_at).toLocaleString("id-ID", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) +
+    return '<div class="card"><div class="row sp"><b>Colokan ' + x.outlet_id + '</b>' + tg + '</div><div class="mute">' + dt(x.created_at) +
       '</div><div class="row sp"><span>' + poin(x.used_wh) + ' Poin</span><b>' + rp(x.amount_idr) + '</b></div>' +
       (Number(x.amount_coin) > 0 ? '<div class="mute">Coin ' + rp(x.amount_coin) + (x.amount_qris ? ' · QRIS ' + rp(x.amount_qris) : '') + '</div>' : '') + '</div>';
-  }).join("") : '<p class="mute">Belum ada riwayat.</p>') + topupHist();
+  }).join("") : '<p class="mute">Belum ada riwayat.</p>');
 }
 
 function settingView() {
@@ -499,6 +503,7 @@ document.addEventListener("click", async function (e) {
       S.sig = "";
       return render();
     }
+    if (act === "rtab") { S.rtab = v; S.sig = ""; return render(); }
     if (act === "topupform") { S.tab = "charge"; S.topupOpen = true; S.sig = ""; return render(); }
     if (act === "topupback") { S.topupOpen = false; S.tamt = 0; S.sig = ""; return render(); }
     if (act === "tamt") { S.tamt = parseInt(v, 10); S.sig = ""; return render(); }
