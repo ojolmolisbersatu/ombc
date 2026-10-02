@@ -23,7 +23,7 @@ h2{font-size:18px;margin:20px 0 8px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin:12px 0;box-shadow:var(--shadow)}
 .row{display:flex;gap:8px;align-items:center}
 .sp{justify-content:space-between}
-input{width:100%;padding:13px;font:inherit;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+input,select{width:100%;padding:13px;font:inherit;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
 button{font:inherit;font-weight:600;border:0;border-radius:10px;padding:13px 16px;background:var(--ink);color:#fff;cursor:pointer}
 button.acc{background:var(--grad);color:#fff}
 button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
@@ -77,6 +77,9 @@ main{padding-bottom:calc(96px + env(safe-area-inset-bottom))}
 .nav button{background:none;color:var(--mute);display:flex;flex-direction:column;align-items:center;gap:2px;font-size:12px;padding:6px 10px;border-radius:0;border-bottom:2px solid transparent}
 .nav button.on{color:var(--acc);border-bottom-color:var(--acc)}
 .nav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.pwbox{position:relative}.pwbox input{padding-right:52px}
+.eye{position:absolute;right:4px;top:50%;transform:translateY(-50%);background:none;color:var(--mute);padding:0;width:44px;height:44px;display:flex;align-items:center;justify-content:center;border-radius:10px}
+.eye svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .toast{bottom:calc(84px + env(safe-area-inset-bottom))}
 .badge{position:absolute;top:-6px;right:-4px;background:var(--bad);color:#fff;border-radius:99px;font-size:11px;min-width:18px;height:18px;line-height:18px;padding:0 5px;text-align:center}
 .nav button{position:relative}.nav .badge{top:0;right:4px}
@@ -99,7 +102,8 @@ var API = SUPABASE_URL + "/functions/v1/charge-api";
 
 var sb = supabase.createClient(SUPABASE_URL, ANON_KEY);
 var $app = document.getElementById("app");
-var S = { user: null, admin: false, tab: "charge", adminMenu: "sessions", outlets: [], tariff: 0, maxWh: 5000, sess: null, all: [], names: {}, outlet: 1, sig: "", profile: null, busy: {}, tgt: null, custom: "", pwOpen: false, np1: "", np2: "", members: null, msq: "", unl: null, asq: "", coin: null, topup: null, tops: [], unpaid: [], ledger: [], rtab: "sesi", topupOpen: false, tamt: 0, tsq: "" };
+var S = { user: null, admin: false, tab: "charge", adminMenu: "sessions", outlets: [], tariff: 0, maxWh: 5000, sess: null, all: [], names: {}, outlet: 1, sig: "", profile: null, busy: {}, tgt: null, custom: "", pwOpen: false, np1: "", np2: "", members: null, msq: "", unl: null, asq: "", coin: null, topup: null, tops: [], unpaid: [], ledger: [], rtab: "sesi", topupOpen: false, tamt: 0, tsq: "", exFrom: "", exTo: "", exUser: "", pwShow: {} };
+(function () { var n = new Date(); S.exTo = ymd(n); S.exFrom = ymd(new Date(n.getFullYear(), n.getMonth(), 1)); })();
 
 function esc(t) { return String(t == null ? "" : t).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
 function rp(n) { return "Rp" + Number(n || 0).toLocaleString("id-ID"); }
@@ -206,9 +210,21 @@ async function load() {
 function login(err) {
   $app.innerHTML = '<h1>OMB Service</h1><p class="sub">Masuk dengan akun anggota.</p><div class="card">' +
     '<label class="mute" for="em">Email</label><input id="em" type="email" autocomplete="username">' +
-    '<label class="mute" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password">' +
+    '<label class="mute" for="pw">Password</label>' + pwBox("pw", "current-password", "") +
     '<p class="mute" style="color:var(--bad)">' + esc(err || "") + '</p>' +
     '<button class="big acc" data-act="login">Masuk</button></div>';
+}
+
+function eyeIc(show) {
+  return '<svg viewBox="0 0 24 24">' + (show
+    ? '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/>'
+    : '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>') + '</svg>';
+}
+// Kolom password dengan tombol mata (tekan untuk lihat/sembunyikan)
+function pwBox(id, auto, val) {
+  var show = !!S.pwShow[id];
+  return '<div class="pwbox"><input id="' + id + '" type="' + (show ? "text" : "password") + '" autocomplete="' + auto + '" value="' + esc(val || "") + '">' +
+    '<button type="button" class="eye" data-act="eye" data-v="' + id + '" aria-label="' + (show ? "Sembunyikan password" : "Tampilkan password") + '">' + eyeIc(show) + '</button></div>';
 }
 
 function ic(n) {
@@ -363,8 +379,8 @@ function histView() {
 
 function settingView() {
   var pw = S.pwOpen ? '<div class="card"><b>Ubah password</b>' +
-    '<label class="mute" for="np1">Password baru (minimal 8 karakter)</label><input id="np1" type="password" autocomplete="new-password" value="' + esc(S.np1) + '">' +
-    '<label class="mute" for="np2">Ulangi password baru</label><input id="np2" type="password" autocomplete="new-password" value="' + esc(S.np2) + '">' +
+    '<label class="mute" for="np1">Password baru (minimal 8 karakter)</label>' + pwBox("np1", "new-password", S.np1) +
+    '<label class="mute" for="np2">Ulangi password baru</label>' + pwBox("np2", "new-password", S.np2) +
     '<div class="row" style="margin-top:10px"><button class="acc" data-act="pwsave">Simpan</button><button class="ghost" data-act="pwform">Batal</button></div></div>' : "";
   return '<h2>Setting</h2><div class="card"><button class="ghost big" data-act="pwform">Ubah password</button></div>' + pw +
     '<button class="big bad" data-act="logout">Keluar</button>';
@@ -408,6 +424,80 @@ function genPw() {
   crypto.getRandomValues(r);
   for (var i = 0; i < r.length; i++) o += a[r[i] % a.length];
   return o;
+}
+
+function ymd(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+function fdt(x) { if (!x) return ""; var d = new Date(x); return ymd(d) + " " + String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
+function csvCell(v) {
+  var s = v == null ? "" : String(v);
+  if (/^[=+\-@\t\r]/.test(s) && isNaN(Number(s))) s = "'" + s; // cegah rumus di Excel
+  return /[";\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function buildCsv(rows, names) {
+  var head = ["Tanggal", "ID Sesi", "ID Anggota", "Nama", "Colokan", "Status", "Target (Poin)", "Terpakai (Poin)", "Tarif per 1.000 Poin (Rp)", "Total (Rp)", "Dibayar Coin (Rp)", "QRIS (Rp)", "Status Bayar", "Waktu Lunas", "Alasan Berhenti"];
+  var rn = function (n) { return n == null ? "" : Math.round(Number(n)); };
+  var lines = [head].concat(rows.map(function (x) {
+    var a = names[x.member_id] || {};
+    return [fdt(x.created_at), x.id, a.id_anggota || "", a.nama_panggilan || a.nama || "", x.outlet_id, x.status, rn(x.target_wh), rn(x.used_wh), rn(x.tariff_per_kwh),
+      rn(x.amount_idr), rn(x.amount_coin), x.amount_idr == null ? "" : rn(x.amount_qris != null ? x.amount_qris : x.amount_idr), x.payment_status || "", fdt(x.paid_at), x.stop_reason || ""];
+  }));
+  return lines.map(function (l) { return l.map(csvCell).join(";"); }).join("\r\n");
+}
+async function pageAll(table) {
+  var from = new Date(S.exFrom + "T00:00:00"), to = new Date(S.exTo + "T00:00:00"); to.setDate(to.getDate() + 1);
+  var out = [], off = 0;
+  while (true) {
+    var q = sb.from(table).select("*").gte("created_at", from.toISOString()).lt("created_at", to.toISOString()).order("created_at", { ascending: true }).range(off, off + 999);
+    if (S.exUser) q = q.eq("user_id", S.exUser);
+    var r = await q;
+    if (r.error) throw new Error("Gagal mengambil data: " + r.error.message);
+    out = out.concat(r.data || []);
+    if (!r.data || r.data.length < 1000) break;
+    off += 1000;
+  }
+  return out;
+}
+async function fetchLedger() { return { rows: await pageAll("charge_coin_ledger") }; }
+async function fetchExport() {
+  var out = await pageAll("charge_sessions");
+  var ids = [], names = {};
+  out.forEach(function (x) { if (x.member_id != null && ids.indexOf(x.member_id) < 0) ids.push(x.member_id); });
+  for (var i = 0; i < ids.length; i += 150) {
+    var m = await sb.from("anggota_omb").select("id,id_anggota,nama,nama_panggilan").in("id", ids.slice(i, i + 150));
+    (m.data || []).forEach(function (a) { names[a.id] = a; });
+  }
+  return { rows: out, names: names };
+}
+function buildLedgerCsv(rows) {
+  var kinds = { topup: "Isi saldo", spend: "Pemakaian", adjust: "Koreksi" };
+  var mem = {};
+  (S.members || []).forEach(function (m) { mem[m.user_id] = m; });
+  var head = ["Tanggal", "ID Anggota", "Nama", "Jenis", "Jumlah (Coin)", "Saldo Setelahnya (Coin)", "ID Sesi", "Keterangan", "Diproses Oleh"];
+  var lines = [head].concat(rows.map(function (x) {
+    var m = mem[x.user_id] || {}, a = mem[x.created_by];
+    var by = x.created_by ? (a ? (a.nama_panggilan || a.nama || "Admin") : "Admin") : "Sistem";
+    return [fdt(x.created_at), m.id_anggota || "", m.nama_panggilan || m.nama || "", kinds[x.kind] || x.kind, Math.round(Number(x.delta)), Math.round(Number(x.balance_after)), x.session_id || "", x.note || "", by];
+  }));
+  return lines.map(function (l) { return l.map(csvCell).join(";"); }).join("\r\n");
+}
+function downloadCsv(name, text) {
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["\uFEFF" + text], { type: "text/csv;charset=utf-8" }));
+  a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+}
+function exportCard() {
+  var opts = '<option value="">Semua anggota</option>' + (S.members || []).slice().sort(function (a, b) {
+    return String(a.nama_panggilan || a.nama || "").localeCompare(String(b.nama_panggilan || b.nama || ""));
+  }).map(function (m) {
+    return '<option value="' + esc(m.user_id) + '"' + (S.exUser === m.user_id ? " selected" : "") + '>' + esc((m.nama_panggilan || m.nama || m.email) + (m.id_anggota ? " (" + m.id_anggota + ")" : "")) + '</option>';
+  }).join("");
+  return '<h2>Export CSV</h2><div class="card"><div class="mute">Rekap per periode, bisa dibuka di Excel atau Google Sheets. Filter anggota berlaku untuk keduanya.</div>' +
+    '<div class="row" style="margin-top:8px"><div style="flex:1"><label class="mute" for="ef">Dari</label><input id="ef" type="date" value="' + esc(S.exFrom) + '"></div>' +
+    '<div style="flex:1"><label class="mute" for="et">Sampai</label><input id="et" type="date" value="' + esc(S.exTo) + '"></div></div>' +
+    '<label class="mute" for="eu">Anggota</label><select id="eu">' + opts + '</select>' +
+    '<button class="big acc" style="margin-top:10px" data-act="export">Unduh Sesi Charge</button>' +
+    '<button class="big ghost" style="margin-top:8px" data-act="exportcoin">Unduh Mutasi Coin</button></div>';
 }
 
 function who(uid) {
@@ -458,6 +548,7 @@ function adminView() {
     '<div class="card warnbox"><b>Belum bayar (' + S.unpaid.length + ')</b>' + (S.unpaid.length ? S.unpaid.map(sessRow).join("") : '<p class="mute">Semua sesi sudah lunas.</p>') + '</div>' +
     (run.length ? '<div class="card"><b>Sedang berjalan (' + run.length + ')</b>' + run.map(sessRow).join("") + '</div>' : "") +
     '<div class="card"><b>Sesi selesai terbaru</b>' + (rest.map(sessRow).join("") || '<p class="mute">Belum ada sesi.</p>') + '</div>' +
+    exportCard() +
     '<h2>Tarif per 1.000 poin</h2><div class="card"><div class="mute">Sekarang ' + rp(S.tariff) + '. Sesi yang sudah berjalan tidak berubah.</div>' +
     '<div class="row" style="margin-top:8px"><input id="tf" type="number" inputmode="numeric" min="1" placeholder="Rupiah per 1.000 poin"><button data-act="tariff">Simpan tarif</button></div></div>';
 
@@ -486,12 +577,19 @@ document.addEventListener("click", async function (e) {
   var b = e.target.closest("[data-act]"); if (!b) return;
   var act = b.dataset.act, v = b.dataset.v;
   try {
+    if (act === "eye") {
+      var pi = document.getElementById(v), sh = pi.type === "password";
+      S.pwShow[v] = sh; pi.type = sh ? "text" : "password";
+      b.innerHTML = eyeIc(sh); b.setAttribute("aria-label", sh ? "Sembunyikan password" : "Tampilkan password");
+      pi.focus(); try { pi.setSelectionRange(pi.value.length, pi.value.length); } catch (e2) {}
+      return;
+    }
     if (act === "login") {
       var r = await sb.auth.signInWithPassword({ email: document.getElementById("em").value.trim(), password: document.getElementById("pw").value });
       if (r.error) return login("Email atau password salah.");
       return boot();
     }
-    if (act === "logout") { await sb.auth.signOut(); S.user = null; S.profile = null; S.members = null; S.unl = null; S.pwOpen = false; S.np1 = ""; S.np2 = ""; S.sig = ""; return login(); }
+    if (act === "logout") { await sb.auth.signOut(); S.user = null; S.profile = null; S.members = null; S.unl = null; S.pwOpen = false; S.np1 = ""; S.np2 = ""; S.sig = ""; S.pwShow = {}; return login(); }
     if (act === "tab") {
       S.tab = v; S.topupOpen = false;
       if (v === "admin") S.adminMenu = "sessions";
@@ -502,6 +600,19 @@ document.addEventListener("click", async function (e) {
       S.adminMenu = v || "sessions";
       S.sig = "";
       return render();
+    }
+    if (act === "export" || act === "exportcoin") {
+      if (!S.exFrom || !S.exTo || S.exFrom > S.exTo) return toast("Periode tidak valid");
+      var coin = act === "exportcoin";
+      if (coin && S.members === null) return toast("Daftar anggota belum dimuat, coba lagi sebentar");
+      var lbl = b.textContent; b.disabled = true; b.textContent = "Menyiapkan...";
+      try {
+        var ex = coin ? await fetchLedger() : await fetchExport();
+        if (!ex.rows.length) { toast("Tidak ada data pada periode itu"); return; }
+        downloadCsv((coin ? "omb-mutasi-coin_" : "omb-sesi-charge_") + S.exFrom + "_sd_" + S.exTo + ".csv", coin ? buildLedgerCsv(ex.rows) : buildCsv(ex.rows, ex.names));
+        toast(ex.rows.length + (coin ? " mutasi" : " sesi") + " diunduh");
+      } finally { b.disabled = false; b.textContent = lbl; }
+      return;
     }
     if (act === "rtab") { S.rtab = v; S.sig = ""; return render(); }
     if (act === "topupform") { S.tab = "charge"; S.topupOpen = true; S.sig = ""; return render(); }
@@ -664,6 +775,9 @@ document.addEventListener("input", function (e) {
   if (id === "cp") { S.custom = e.target.value; S.tgt = "custom"; document.querySelectorAll(".chips .sel").forEach(function (c) { c.classList.remove("sel"); }); var sb = document.getElementById("startBtn"); if (sb) sb.disabled = !tgtVal(); }
   if (id === "ta") { S.tamt = parseInt(e.target.value, 10) || 0; document.querySelectorAll(".chips button").forEach(function (c) { c.classList.toggle("sel", parseInt(c.dataset.v, 10) === S.tamt); }); var tb = document.getElementById("topupBtn"); if (tb) tb.disabled = !(S.tamt >= 5000 && S.tamt <= 1000000); }
   if (id === "ts") { S.tsq = e.target.value; var tl = document.getElementById("tlist"); if (tl) tl.innerHTML = tsRows(); }
+  if (id === "ef") S.exFrom = e.target.value;
+  if (id === "et") S.exTo = e.target.value;
+  if (id === "eu") S.exUser = e.target.value;
   if (id === "np1") S.np1 = e.target.value;
   if (id === "np2") S.np2 = e.target.value;
   if (id === "as") { S.asq = e.target.value; var al = document.getElementById("alist"); if (al) al.innerHTML = unlinkedRows(); }
