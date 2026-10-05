@@ -87,16 +87,6 @@ main{padding-bottom:calc(96px + env(safe-area-inset-bottom))}
 .pos{color:var(--ok)}.neg{color:var(--bad)}
 .warnbox{border:2px solid var(--warn);background:#FFFBEB}
 .warnbox .s{border-color:#F3E3B5}
-.maint{text-align:center;padding:28px 4px 8px}
-.maint .mbolt{width:112px;height:112px;margin:0 auto 22px;border-radius:32px;background:var(--ink);display:grid;place-items:center;position:relative;box-shadow:0 16px 36px -16px rgba(27,42,74,.55)}
-.maint .mbolt::after{content:"";position:absolute;inset:-9px;border-radius:40px;border:2px solid var(--acc);opacity:0;animation:mring 2.4s ease-out infinite}
-.maint .mbolt svg{width:58px;height:58px;animation:mflick 2.4s ease-in-out infinite}
-@keyframes mring{0%{opacity:.6;transform:scale(.94)}100%{opacity:0;transform:scale(1.12)}}
-@keyframes mflick{0%,45%,55%,100%{opacity:1}50%{opacity:.45}}
-@media (prefers-reduced-motion:reduce){.maint .mbolt::after,.maint .mbolt svg{animation:none}}
-.maint h1{font-size:25px;line-height:1.2;margin:0 0 10px}
-.maint .sub{margin:0 0 20px}
-.maint .card{text-align:left}
 </style>
 </head>
 <body>
@@ -281,20 +271,9 @@ function devRows(s) {
   }).join("") + '</div>';
 }
 
-// Mode perbaikan: true = tab Home user menampilkan halaman perbaikan (admin tetap bisa ngecas), tab lain normal
-var MAINT = true;
-function maintView() {
-  var wa = "https://wa.me/6285128052599?text=" + encodeURIComponent("Halo admin OMB Service, saya " + nm() + " mau tanya soal layanan charge.");
-  return '<div class="maint"><div class="mbolt"><svg viewBox="0 0 24 24"><defs><linearGradient id="mg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22A85A"/><stop offset="1" stop-color="#1E88E5"/></linearGradient></defs><path fill="url(#mg)" d="M13 2L3 14h8l-1 8 10-12h-8z"/></svg></div>' +
-    '<h1>Layanan charge sedang dalam perbaikan</h1>' +
-    '<p class="sub">Pengisian charge sementara belum bisa dipakai. Kami sedang merapikan sistem supaya lebih lancar.</p>' +
-    '<div class="card"><b>Punya tagihan atau saldo coin?</b><div class="mute">Data kamu aman dan tetap tersimpan. Menu Riwayat, Setting, dan Profil tetap bisa dibuka.</div></div>' +
-    '<a class="btn acc" href="' + wa + '" target="_blank" rel="noopener">Hubungi admin</a></div>';
-}
-
 function render() {
   if (!S.user) return login();
-  var v = S.tab === "admin" && S.admin ? adminView() : S.tab === "riwayat" ? histView() : S.tab === "setting" ? settingView() : S.tab === "profil" ? profilView() : MAINT && !S.admin ? maintView() : userView();
+  var v = S.tab === "admin" && S.admin ? adminView() : S.tab === "riwayat" ? histView() : S.tab === "setting" ? settingView() : S.tab === "profil" ? profilView() : userView();
   $app.innerHTML = head() + v + navBar();
   var q = document.getElementById("qr");
   if (q) {
@@ -569,7 +548,9 @@ function adminView() {
   var run = S.all.filter(function (x) { return x.status === "pending" || x.status === "running"; });
   var rest = S.all.filter(function (x) { return x.payment_status !== "unpaid" && x.status !== "pending" && x.status !== "running"; });
   var sessionSection =
-    '<button class="big bad" data-act="off">OFF darurat colokan 1</button>' +
+        S.outlets.map(function (o) {
+      return '<button class="big bad" data-act="off" data-v="' + o.id + '">OFF darurat ' + esc(o.name) + '</button>';
+    }).join("") +
     '<div class="card warnbox"><b>Belum bayar (' + S.unpaid.length + ')</b>' + (S.unpaid.length ? S.unpaid.map(sessRow).join("") : '<p class="mute">Semua sesi sudah lunas.</p>') + '</div>' +
     (run.length ? '<div class="card"><b>Sedang berjalan (' + run.length + ')</b>' + run.map(sessRow).join("") + '</div>' : "") +
     '<div class="card"><b>Sesi selesai terbaru</b>' + (rest.map(sessRow).join("") || '<p class="mute">Belum ada sesi.</p>') + '</div>' +
@@ -746,9 +727,10 @@ document.addEventListener("click", async function (e) {
       if (!confirm("Selesaikan sesi dengan poin dari status terakhir perangkat?")) return;
       await api("/admin/finish", { session_id: v });
     }
-    if (act === "off") {
-      if (!confirm("Matikan colokan 1 sekarang?")) return;
-      var res = await api("/admin/off", { outlet_id: 1 });
+     if (act === "off") {
+      var oid = parseInt(v, 10) || 1;
+      if (!confirm("Matikan colokan " + oid + " sekarang?")) return;
+      var res = await api("/admin/off", { outlet_id: oid });
       toast(res.action === "stop_requested" ? "Perintah OFF dikirim, relay mati dalam beberapa detik" : "OFF diproses: " + res.action);
     }
     if (act === "tariff") {
