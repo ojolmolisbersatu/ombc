@@ -56,6 +56,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--blue);outline-o
 .admin-section-title{margin-top:14px}
 
 main{padding-bottom:calc(96px + env(safe-area-inset-bottom))}
+.loginlogo{display:flex;justify-content:center;margin:24px 0 8px}.loginlogo img{width:96px;height:96px;border-radius:22px;box-shadow:var(--shadow);object-fit:cover}
 .brand{display:flex;align-items:center;gap:8px;margin:6px 0 14px;font-size:26px;font-weight:800;font-style:italic;letter-spacing:-.5px}
 .brand svg{width:28px;height:28px;fill:var(--acc)}.brand b{color:var(--acc)}
 
@@ -222,7 +223,8 @@ async function load() {
 
 // ===== TAMPILAN =====
 function login(err) {
-  $app.innerHTML = '<h1>OMB Service</h1><p class="sub">Masuk dengan akun anggota.</p><div class="card">' +
+  $app.innerHTML = '<div class="loginlogo"><img src="icon-192.png" srcset="icon-192.png 1x, icon-512.png 2x" width="96" height="96" alt="Logo OMB"></div>' +
+    '<h1 style="text-align:center">OMB Service</h1><p class="sub" style="text-align:center">Masuk dengan akun anggota.</p><div class="card">' +
     '<label class="mute" for="em">Email</label><input id="em" type="email" autocomplete="username">' +
     '<label class="mute" for="pw">Password</label>' + pwBox("pw", "current-password", "") +
     '<p class="mute" style="color:var(--bad)">' + esc(err || "") + '</p>' +
@@ -324,6 +326,7 @@ function topupView() {
 
 function userView() {
   var s = S.sess;
+  if (S.topupOpen) return topupView();
   if (s && (s.status === "pending" || s.status === "running")) {
     var run = s.status === "running";
     var used = run ? Math.max(0, (s.last_wh || s.start_wh) - s.start_wh) : 0;
@@ -335,7 +338,7 @@ function userView() {
       '<div class="mute">dari ' + poin(tg) + ' Poin</div><div class="stripe"><i style="width:' + pct + '%"></i></div>' +
       '<div><b style="color:var(--acc)">' + poin(Math.max(0, tg - used)) + '</b> <span class="mute">Poin tersisa</span></div>' +
       '<div class="mute" style="margin-top:6px">Perkiraan biaya ' + rp(Math.ceil(used * s.tariff_per_kwh / 1000 / 100) * 100) + '</div></div>' +
-      devRows(s) +
+      devRows(s) + coinCard() + pendTop() +
       '<button class="big bad" data-act="stop"' + (s.stop_requested_at ? " disabled" : "") + '>■ Akhiri Sesi</button>' +
       '<p class="mute">Berhenti saat Anda menekan Akhiri Sesi, atau otomatis jika tidak ada aliran listrik 10 detik.</p>';
   }
