@@ -361,7 +361,7 @@ function userView() {
   var last = s && s.payment_status === "paid" ? '<p class="mute">Sesi terakhir: ' + poin(s.used_wh) + ' Poin, ' + rp(s.amount_idr) + (Number(s.amount_coin) > 0 ? ' (lunas, coin ' + rp(s.amount_coin) + (s.amount_qris ? ' + QRIS ' + rp(s.amount_qris) : '') + ')' : ' (lunas)') + '.</p>' : "";
   return '<p class="hello">Halo, ' + esc(nm()) + ' 👋</p><p class="sub">Pilih colokan dan jumlah poin, lalu tekan Mulai.</p>' + coinCard() + pendTop() +
     '<h2>Pilih Colokan</h2><div class="ocs">' + o + '</div>' +
-    '<h2>Pilih Jumlah Poin</h2><input id="cp" type="number" inputmode="decimal" step="0.01" min="0.01" max="' + (S.maxWh / 1000) + '" placeholder="Masukkan jumlah Poin (maks ' + poin(S.maxWh) + ')" value="' + esc(S.tgt === "custom" ? S.custom : "") + '">' +
+    '<h2>Pilih Jumlah Poin</h2><input id="cp" type="number" inputmode="decimal" step="0.01" min="0.01" max="' + (S.maxWh / 1000) + '" placeholder="Masukkan jumlah Poin (maks ' + (S.maxWh / 1000).toLocaleString("id-ID") + ')" value="' + esc(S.tgt === "custom" ? S.custom : "") + '">' +
     '<div class="chips row" style="margin:10px 0">' + chips + '</div>' +
     '<p class="mute">Tagihan dihitung dari pemakaian saat Akhiri Sesi.</p>' + last +
     '<button id="startBtn" class="big acc" data-act="start"' + (tgtVal() ? "" : " disabled") + '>⚡ MULAI</button>';
