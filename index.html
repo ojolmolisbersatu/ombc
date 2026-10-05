@@ -356,7 +356,7 @@ function userView() {
       '<span>' + esc(x.name) + '<small><span class="dot' + (inUse ? " use" : ok ? "" : " off") + '"></span>' + (inUse ? "Dipakai" : x.is_available ? "Tersedia" : "Tidak tersedia") + '</small></span></button>';
   }).join("");
   var chips = [1000, 2500, 5000].map(function (n) {
-    return '<button class="' + (S.tgt === n ? "sel" : "") + '" data-act="tgt" data-v="' + n + '">' + poin(n) + ' Poin</button>';
+    return '<button class="' + (S.tgt === n ? "sel" : "") + '" data-act="tgt" data-v="' + n + '">' + (n / 1000).toLocaleString("id-ID") + ' Poin</button>';
   }).join("");
   var last = s && s.payment_status === "paid" ? '<p class="mute">Sesi terakhir: ' + poin(s.used_wh) + ' Poin, ' + rp(s.amount_idr) + (Number(s.amount_coin) > 0 ? ' (lunas, coin ' + rp(s.amount_coin) + (s.amount_qris ? ' + QRIS ' + rp(s.amount_qris) : '') + ')' : ' (lunas)') + '.</p>' : "";
   return '<p class="hello">Halo, ' + esc(nm()) + ' 👋</p><p class="sub">Pilih colokan dan jumlah poin, lalu tekan Mulai.</p>' + coinCard() + pendTop() +
