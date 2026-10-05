@@ -107,8 +107,20 @@ var S = { user: null, admin: false, tab: "charge", adminMenu: "sessions", outlet
 
 function esc(t) { return String(t == null ? "" : t).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
 function rp(n) { return "Rp" + Number(n || 0).toLocaleString("id-ID"); }
-function tgtVal() { var t = S.tgt === "custom" ? parseInt(S.custom, 10) : S.tgt; return t && t > 0 ? t : 0; }
-function poin(wh) { return Math.round(Number(wh || 0)).toLocaleString("id-ID"); } // 1 poin = 1 Wh
+// Hasil selalu dalam Wh (bilangan bulat), karena server dan Shelly memakai Wh.
+function tgtVal() {
+  var t;
+  if (S.tgt === "custom") {
+    var p = parseFloat(String(S.custom).replace(",", "."));
+    t = isFinite(p) ? Math.round(p * 1000) : 0;
+  } else t = S.tgt;
+  return t && t > 0 ? t : 0;
+}
+// 1 Poin = 1.000 Wh. Tampil 2 desimal, dibulatkan ke atas: 234 Wh -> 0,24
+function poin(wh) {
+  var n = (Math.ceil(Number(wh || 0) / 10 - 1e-6) / 100) || 0;
+  return n.toLocaleString("id-ID", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 function toast(m) {
   var d = document.createElement("div"); d.className = "toast"; d.setAttribute("role", "status"); d.textContent = m;
   document.body.appendChild(d); setTimeout(function () { d.remove(); }, 3500);
@@ -349,7 +361,7 @@ function userView() {
   var last = s && s.payment_status === "paid" ? '<p class="mute">Sesi terakhir: ' + poin(s.used_wh) + ' Poin, ' + rp(s.amount_idr) + (Number(s.amount_coin) > 0 ? ' (lunas, coin ' + rp(s.amount_coin) + (s.amount_qris ? ' + QRIS ' + rp(s.amount_qris) : '') + ')' : ' (lunas)') + '.</p>' : "";
   return '<p class="hello">Halo, ' + esc(nm()) + ' 👋</p><p class="sub">Pilih colokan dan jumlah poin, lalu tekan Mulai.</p>' + coinCard() + pendTop() +
     '<h2>Pilih Colokan</h2><div class="ocs">' + o + '</div>' +
-    '<h2>Pilih Jumlah Poin</h2><input id="cp" type="number" inputmode="numeric" min="1" max="' + S.maxWh + '" placeholder="Masukkan jumlah Poin (maks ' + poin(S.maxWh) + ')" value="' + esc(S.tgt === "custom" ? S.custom : "") + '">' +
+    '<h2>Pilih Jumlah Poin</h2><input id="cp" type="number" inputmode="decimal" step="0.01" min="0.01" max="' + (S.maxWh / 1000) + '" placeholder="Masukkan jumlah Poin (maks ' + poin(S.maxWh) + ')" value="' + esc(S.tgt === "custom" ? S.custom : "") + '">' +
     '<div class="chips row" style="margin:10px 0">' + chips + '</div>' +
     '<p class="mute">Tagihan dihitung dari pemakaian saat Akhiri Sesi.</p>' + last +
     '<button id="startBtn" class="big acc" data-act="start"' + (tgtVal() ? "" : " disabled") + '>⚡ MULAI</button>';
@@ -436,11 +448,12 @@ function csvCell(v) {
   return /[";\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 function buildCsv(rows, names) {
-  var head = ["Tanggal", "ID Sesi", "ID Anggota", "Nama", "Colokan", "Status", "Target (Poin)", "Terpakai (Poin)", "Tarif per 1.000 Poin (Rp)", "Total (Rp)", "Dibayar Coin (Rp)", "QRIS (Rp)", "Status Bayar", "Waktu Lunas", "Alasan Berhenti"];
+  var head = ["Tanggal", "ID Sesi", "ID Anggota", "Nama", "Colokan", "Status", "Target (Poin)", "Terpakai (Poin)", "Tarif per 1 Poin (Rp)", "Total (Rp)", "Dibayar Coin (Rp)", "QRIS (Rp)", "Status Bayar", "Waktu Lunas", "Alasan Berhenti"];
   var rn = function (n) { return n == null ? "" : Math.round(Number(n)); };
+  var pn = function (n) { return n == null ? "" : poin(n); };
   var lines = [head].concat(rows.map(function (x) {
     var a = names[x.member_id] || {};
-    return [fdt(x.created_at), x.id, a.id_anggota || "", a.nama_panggilan || a.nama || "", x.outlet_id, x.status, rn(x.target_wh), rn(x.used_wh), rn(x.tariff_per_kwh),
+    return [fdt(x.created_at), x.id, a.id_anggota || "", a.nama_panggilan || a.nama || "", x.outlet_id, x.status, pn(x.target_wh), pn(x.used_wh), rn(x.tariff_per_kwh),
       rn(x.amount_idr), rn(x.amount_coin), x.amount_idr == null ? "" : rn(x.amount_qris != null ? x.amount_qris : x.amount_idr), x.payment_status || "", fdt(x.paid_at), x.stop_reason || ""];
   }));
   return lines.map(function (l) { return l.map(csvCell).join(";"); }).join("\r\n");
