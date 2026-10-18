@@ -4,148 +4,100 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>OMB Service</title>
+<link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#F4F7FA">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="OMB">
-<link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap">
 <style>
-/* ===== 1. Dasar ===== */
-:root{color-scheme:light;--bg:#F4F7FA;--ink:#1B2A4A;--mute:#5E6B80;--card:#FFFFFF;--line:#DCE3EC;--acc:#22A85A;--blue:#1E88E5;--ok:#22A85A;--bad:#DC2626;--warn:#F59E0B;--grad:linear-gradient(135deg,#22A85A,#1E88E5);--shadow:0 1px 3px rgba(27,42,74,.08),0 4px 14px rgba(27,42,74,.06)}
+:root{color-scheme:light;--bg:#F4F7FA;--ink:#1B2A4A;--mute:#5E6B80;--card:#FFFFFF;--line:#DCE3EC;--acc:#22A85A;--accink:#FFFFFF;--blue:#1E88E5;--ok:#22A85A;--bad:#DC2626;--warn:#F59E0B;--grad:linear-gradient(135deg,#22A85A,#1E88E5);--shadow:0 1px 3px rgba(27,42,74,.08),0 4px 14px rgba(27,42,74,.06)}
 *{box-sizing:border-box}
 html,body{touch-action:manipulation;-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 Archivo,system-ui,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
-main{max-width:520px;margin:0 auto;padding:16px 16px calc(96px + env(safe-area-inset-bottom))}
+main{max-width:520px;margin:0 auto;padding:16px}
 h1{font-size:28px;font-weight:800;margin:8px 0 2px;letter-spacing:-.5px}
 h2{font-size:18px;margin:20px 0 8px}
 .sub{color:var(--mute);margin:0 0 16px}
-.mute{color:var(--mute);font-size:14px}
-.hello{font-size:20px;font-weight:800;margin:4px 0 0}
-.num{font-size:44px;font-weight:800;letter-spacing:-1px;line-height:1.05}
-.pos{color:var(--ok)}
-.neg{color:var(--bad)}
-
-/* ===== 2. Tata letak ===== */
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin:12px 0;box-shadow:var(--shadow)}
 .row{display:flex;gap:8px;align-items:center}
 .sp{justify-content:space-between}
-.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin:12px 0;box-shadow:var(--shadow)}
-.warnbox{border:2px solid var(--warn);background:#FFFBEB}
-.warnbox .s{border-color:#F3E3B5}
-.s{border-top:1px solid var(--line);padding:12px 0}
-.s:first-child{border-top:0}
-.kv{display:flex;justify-content:space-between;padding:9px 0;border-top:1px solid var(--line);margin-top:6px}
-
-/* ===== 3. Form dan tombol ===== */
 input,select{width:100%;padding:13px;font:inherit;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
 button{font:inherit;font-weight:600;border:0;border-radius:10px;padding:13px 16px;background:var(--ink);color:#fff;cursor:pointer}
-button.acc{background:var(--grad)}
+button.acc{background:var(--grad);color:#fff}
 button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
-button.bad{background:var(--bad)}
+button.bad{background:var(--bad);color:#fff}
 button.sm{padding:8px 10px;font-size:14px}
 button:disabled{opacity:.5;cursor:not-allowed}
 button:focus-visible,input:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
 .big{width:100%;font-size:18px;padding:16px}
-.btn{display:block;text-align:center;text-decoration:none;font-weight:600;border-radius:10px;padding:16px;font-size:18px}
-.btn.acc{background:var(--grad);color:#fff}
-.pwbox{position:relative}
-.pwbox input{padding-right:52px}
-.eye{position:absolute;right:4px;top:50%;transform:translateY(-50%);background:none;color:var(--mute);padding:0;width:44px;height:44px;display:flex;align-items:center;justify-content:center}
-.eye svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-
-/* ===== 4. Label, status, notifikasi ===== */
+.outlets{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.outlet{padding:14px;text-align:left;background:var(--card);color:var(--ink);border:2px solid var(--line)}
+.outlet.sel{border-color:var(--acc);box-shadow:inset 0 0 0 1px var(--acc)}
+.outlet small{display:block;color:var(--mute);font-weight:400}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.num{font-size:44px;font-weight:800;letter-spacing:-1px;line-height:1.05}
 .tag{display:inline-block;padding:3px 10px;border-radius:99px;font-size:13px;font-weight:600;background:var(--line)}
-.tag.run{background:var(--blue);color:#fff}
-.tag.paid{background:var(--ok);color:#fff}
-.tag.unpaid{background:var(--warn);color:var(--ink)}
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:6px}
-.dot.off{background:var(--bad)}
-.dot.use{background:var(--blue)}
-.badge{position:absolute;top:-6px;right:-4px;background:var(--bad);color:#fff;border-radius:99px;font-size:11px;min-width:18px;height:18px;line-height:18px;padding:0 5px;text-align:center}
-.toast{position:fixed;left:16px;right:16px;bottom:calc(84px + env(safe-area-inset-bottom));max-width:488px;margin:0 auto;background:var(--ink);color:#fff;padding:14px;border-radius:12px;z-index:9}
+.tag.run{background:var(--blue);color:#fff}.tag.paid{background:var(--ok);color:#fff}.tag.unpaid{background:var(--warn);color:var(--ink)}
+.bar{height:10px;background:var(--line);border-radius:9px;overflow:hidden;margin:10px 0}
+.bar i{display:block;height:100%;background:var(--grad)}
+#qr{display:flex;justify-content:center;background:#fff;padding:14px;border-radius:12px;margin:12px 0}
+.tabs{display:flex;gap:8px;margin:8px 0}
+.tabs button{flex:1}
+.toast{position:fixed;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));max-width:488px;margin:0 auto;background:var(--ink);color:#fff;padding:14px;border-radius:12px;z-index:9}
+.s{border-top:1px solid var(--line);padding:12px 0}.s:first-child{border-top:0}
+.mute{color:var(--mute);font-size:14px}
+.hi{margin:0 0 12px}.hi b{font-size:18px}.hi .tag{margin-left:6px}
+.admin-menu{position:sticky;top:0;z-index:8;background:var(--bg);padding:8px 0 10px;margin:0 -2px 4px}
+.admin-menu-inner{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.admin-menu button{position:relative;padding:12px 8px;font-size:14px;line-height:1.15;min-height:52px}
+.admin-menu button.active{background:var(--grad);color:#fff;border-color:transparent}
+.admin-section-title{margin-top:14px}
 
-/* ===== 5. Menu bawah dan kepala ===== */
-.brand{display:flex;align-items:center;gap:8px;margin:6px 0 14px;font-size:26px;font-weight:800;font-style:italic;letter-spacing:-.5px}
-.brand svg{width:28px;height:28px;fill:var(--acc)}
-.brand b{color:var(--acc)}
-.nav{position:fixed;left:0;right:0;bottom:0;z-index:7;display:flex;justify-content:space-around;background:#fff;border-top:1px solid var(--line);box-shadow:0 -2px 12px rgba(27,42,74,.06);padding:6px 0 calc(6px + env(safe-area-inset-bottom))}
-.nav button{position:relative;background:none;color:var(--mute);display:flex;flex-direction:column;align-items:center;gap:2px;font-size:12px;padding:6px 10px;border-radius:0;border-bottom:2px solid transparent}
-.nav button.on{color:var(--acc);border-bottom-color:var(--acc)}
-.nav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.nav .badge{top:0;right:4px}
-.nav .scanfab{width:56px;height:56px;border-radius:50%;margin-top:-26px;background:var(--grad);padding:0;border:4px solid #fff;box-shadow:var(--shadow);align-items:center;justify-content:center;color:#fff}
-.nav .scanfab svg{width:26px;height:26px;stroke:#fff}
-
-/* ===== 6. Login ===== */
+main{padding-bottom:calc(96px + env(safe-area-inset-bottom))}
 .login-hero{display:flex;flex-direction:column;align-items:center;text-align:center;margin:24px 0 8px}
 .login-hero img{width:96px;height:96px;border-radius:22px;object-fit:contain;margin-bottom:8px}
 .login-hero h1{margin:4px 0 2px}
+.brand{display:flex;align-items:center;gap:8px;margin:6px 0 14px;font-size:26px;font-weight:800;font-style:italic;letter-spacing:-.5px}
+.brand svg{width:28px;height:28px;fill:var(--acc)}.brand b{color:var(--acc)}
 
-/* ===== 7. Colokan, pilihan cepat, tab ===== */
+.hello{font-size:20px;font-weight:800;margin:4px 0 0}
 .ocs{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .oc{display:flex;gap:10px;align-items:center;text-align:left;padding:12px;background:var(--card);color:var(--ink);border:1.5px solid var(--line);border-radius:12px}
 .oc.sel{border-color:var(--ok);background:#E8F6EE}
 .oc svg{width:26px;height:26px;fill:var(--acc);flex:none}
 .oc small{display:block;font-weight:400;color:var(--mute)}
-.chips{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:6px}.dot.off{background:var(--bad)}.dot.use{background:var(--blue)}
 .chips button{flex:1;background:transparent;color:var(--ink);border:1px solid var(--line);padding:10px 4px;font-size:14px}
 .chips button.sel{border-color:var(--acc);color:var(--acc);background:#E8F6EE}
-.seg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}
-.seg button{background:transparent;color:var(--ink);border:1px solid var(--line)}
-.seg button.sel{background:var(--grad);color:#fff;border-color:transparent}
-
-/* ===== 8. Progres dan QR ===== */
 .stripe{height:14px;border-radius:4px;overflow:hidden;background:#E3EAF2;margin:12px 0}
 .stripe i{display:block;height:100%;background:repeating-linear-gradient(115deg,rgba(255,255,255,.28) 0 6px,transparent 6px 12px),var(--grad)}
-#qr{display:flex;justify-content:center;background:#fff;padding:14px;border-radius:12px;margin:12px 0}
-
-/* ===== 9. Admin ===== */
-.admin-menu{position:sticky;top:0;z-index:8;background:var(--bg);padding:8px 0 10px;margin:0 -2px 4px}
-.admin-menu-inner{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
-.admin-menu button{position:relative;padding:12px 8px;font-size:14px;line-height:1.15;min-height:52px}
-.admin-menu button.active{background:var(--grad);color:#fff}
-.admin-section-title{margin-top:14px}
-
-/* ===== 10. Stasiun, detail, pengaturan sesi (v2.0) ===== */
-.stc{display:flex;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px;margin:10px 0;box-shadow:var(--shadow);cursor:pointer}
-.stc:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
-.th{width:64px;height:64px;border-radius:12px;background:var(--grad);display:flex;align-items:center;justify-content:center;flex:none;overflow:hidden}
-.th svg{width:30px;height:30px;fill:#fff}
-.th img,.hero img{width:100%;height:100%;object-fit:cover}
-.stm{flex:1;min-width:0}
-.stm b{display:block}
-.clamp{overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.stp{text-align:right;color:var(--acc)}
-.stp b{font-size:17px}
-.stp small{display:block;color:var(--mute)}
-.hero{height:170px;border-radius:16px;background:var(--grad);display:flex;align-items:center;justify-content:center;overflow:hidden;margin:4px 0 12px}
-.hero svg{width:64px;height:64px;fill:#fff}
-.topbar{display:flex;align-items:center;gap:10px;margin:4px 0 8px}
-.topbar b{font-size:20px}
-.topbar button{padding:8px 14px;background:var(--card);color:var(--ink);border:1px solid var(--line)}
-.bottombar{position:fixed;left:0;right:0;bottom:calc(64px + env(safe-area-inset-bottom));z-index:6;background:#fff;border-top:1px solid var(--line);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px}
-.bottombar b{font-size:20px}
-.bottombar button{min-width:150px}
-.lqbox{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}
-.lq{text-align:center}
-.qi{display:flex;justify-content:center;background:#fff;padding:8px;border-radius:10px}
-
-/* ===== 11. Scan kamera dan cetak ===== */
-.scanov{position:fixed;inset:0;z-index:20;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#fff;padding:16px}
-.scanov video{width:100%;max-width:420px;border-radius:16px;background:#111}
-@media print{main>*:not(.qrprint),.nav,.toast{display:none!important}.qrprint{border:0;box-shadow:none}}
+.kv{display:flex;justify-content:space-between;padding:9px 0;border-top:1px solid var(--line);margin-top:6px}
+.btn{display:block;text-align:center;text-decoration:none;font-weight:600;border-radius:10px;padding:16px;font-size:18px}
+.btn.acc{background:var(--grad);color:#fff}
+.nav{position:fixed;left:0;right:0;bottom:0;z-index:7;display:flex;justify-content:space-around;background:#fff;border-top:1px solid var(--line);box-shadow:0 -2px 12px rgba(27,42,74,.06);padding:6px 0 calc(6px + env(safe-area-inset-bottom))}
+.nav button{background:none;color:var(--mute);display:flex;flex-direction:column;align-items:center;gap:2px;font-size:12px;padding:6px 10px;border-radius:0;border-bottom:2px solid transparent}
+.nav button.on{color:var(--acc);border-bottom-color:var(--acc)}
+.nav svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.pwbox{position:relative}.pwbox input{padding-right:52px}
+.eye{position:absolute;right:4px;top:50%;transform:translateY(-50%);background:none;color:var(--mute);padding:0;width:44px;height:44px;display:flex;align-items:center;justify-content:center;border-radius:10px}
+.eye svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.toast{bottom:calc(84px + env(safe-area-inset-bottom))}
+.badge{position:absolute;top:-6px;right:-4px;background:var(--bad);color:#fff;border-radius:99px;font-size:11px;min-width:18px;height:18px;line-height:18px;padding:0 5px;text-align:center}
+.nav button{position:relative}.nav .badge{top:0;right:4px}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}.seg button{background:transparent;color:var(--ink);border:1px solid var(--line)}.seg button.sel{background:var(--grad);color:#fff;border-color:transparent}
+.pos{color:var(--ok)}.neg{color:var(--bad)}
+.warnbox{border:2px solid var(--warn);background:#FFFBEB}
+.warnbox .s{border-color:#F3E3B5}
 </style>
 </head>
 <body>
-<main id="app"><noscript>Aktifkan JavaScript untuk memakai OMB Service.</noscript></main>
-
-<!-- Pustaka -->
-<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<!-- Aplikasi (urutan penting: app.js dulu, lalu ui-v2.js) -->
-<script defer src="js/app.js"></script>
-<script defer src="js/ui-v2.js"></script>
+<main id="app"></main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="js/app.js"></script>
+<script src="js/ui-v2.js"></script>
 </body>
 </html>
