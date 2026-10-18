@@ -1,7 +1,41 @@
 // OMB Charger v2.0, tampilan saja: Home (daftar stasiun), Detail Stasiun, Pengaturan Sesi, Scan, QR lokasi.
-// Dimuat dari index.html setelah js/app.js. Gaya (CSS) ada di index.html.
+// Dimuat dari index.html setelah js/app.js. Gaya tambahan disuntikkan dari sini; index.html tetap seperti aslinya.
 // Alur sesi/bayar/login TIDAK diubah: tombol Mulai memakai aksi "start" yang sudah ada.
 (function () {
+  // Gaya tambahan tampilan v2.0 (index.html dibiarkan seperti aslinya)
+  var css = document.createElement("style");
+  css.id = "ui-v2-css";
+  css.textContent = [
+    ".nav .scanfab{width:56px;height:56px;border-radius:50%;margin-top:-26px;background:var(--grad);padding:0;border:4px solid #fff;box-shadow:var(--shadow);align-items:center;justify-content:center;color:#fff}",
+    ".nav .scanfab svg{width:26px;height:26px;stroke:#fff}",
+    ".stc{display:flex;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px;margin:10px 0;box-shadow:var(--shadow);cursor:pointer}",
+    ".stc:focus-visible{outline:3px solid var(--blue);outline-offset:2px}",
+    ".th{width:64px;height:64px;border-radius:12px;background:var(--grad);display:flex;align-items:center;justify-content:center;flex:none;overflow:hidden}",
+    ".th svg{width:30px;height:30px;fill:#fff}",
+    ".th img,.hero img{width:100%;height:100%;object-fit:cover}",
+    ".stm{flex:1;min-width:0}",
+    ".stm b{display:block}",
+    ".clamp{overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}",
+    ".stp{text-align:right;color:var(--acc)}",
+    ".stp b{font-size:17px}",
+    ".stp small{display:block;color:var(--mute)}",
+    ".hero{height:170px;border-radius:16px;background:var(--grad);display:flex;align-items:center;justify-content:center;overflow:hidden;margin:4px 0 12px}",
+    ".hero svg{width:64px;height:64px;fill:#fff}",
+    ".topbar{display:flex;align-items:center;gap:10px;margin:4px 0 8px}",
+    ".topbar b{font-size:20px}",
+    ".topbar button{padding:8px 14px;background:var(--card);color:var(--ink);border:1px solid var(--line)}",
+    ".bottombar{position:fixed;left:0;right:0;bottom:calc(64px + env(safe-area-inset-bottom));z-index:6;background:#fff;border-top:1px solid var(--line);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px}",
+    ".bottombar b{font-size:20px}",
+    ".bottombar button{min-width:150px}",
+    ".lqbox{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}",
+    ".lq{text-align:center}",
+    ".qi{display:flex;justify-content:center;background:#fff;padding:8px;border-radius:10px}",
+    ".scanov{position:fixed;inset:0;z-index:20;background:#000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#fff;padding:16px}",
+    ".scanov video{width:100%;max-width:420px;border-radius:16px;background:#111}",
+    "@media print{main>*:not(.qrprint),.nav,.toast{display:none!important}.qrprint{border:0;box-shadow:none}}"
+].join("\n");
+  document.head.appendChild(css);
+
   S.v = "home"; S.stm = "kwh"; S.skwh = ""; S.snom = ""; S.sq = ""; S.stations = [];
   var qs = new URLSearchParams(location.search);
   if (qs.get("socket")) S.deep = { st: qs.get("station"), so: qs.get("socket") };
