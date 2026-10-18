@@ -35,6 +35,13 @@ jobs:
       - name: Buat proyek Android
         run: npx cap add android
 
+      - name: Tambah izin kamera
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          sed -i 's#<application#<uses-permission android:name="android.permission.CAMERA" />\n    <uses-feature android:name="android.hardware.camera" android:required="false" />\n    <application#' $MANIFEST
+          echo "--- cek manifest ---"
+          grep -n "CAMERA" $MANIFEST
+
       - name: Ikon dan splash screen
         continue-on-error: true   # kalau gagal, APK tetap jadi dengan ikon bawaan
         run: npx --yes @capacitor/assets@3 generate --android
