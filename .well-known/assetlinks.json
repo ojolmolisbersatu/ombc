@@ -1,0 +1,15 @@
+
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "id.ombservice.app",
+      "sha256_cert_fingerprints": [
+        "64:33:61:F5:C3:FD:0E:82:C3:F6:0B:4B:54:63:49:6D:6F:6A:69:20:59:D3:5E:48:8D:8E:66:C6:48:0B:DE:72"
+      ]
+    }
+  }
+]
