@@ -78,15 +78,19 @@ async function api(path, body) {
 // ===== DATA =====
 async function load() {
   var u = S.user.id;
+  var first = !S.loadedStatic; // outlet, tarif, config jarang berubah: cukup dimuat sekali
   var q = await Promise.all([
-    sb.from("charge_outlets").select("*").order("id"),
-    sb.from("charge_tariffs").select("price_per_kwh").order("effective_from", { ascending: false }).limit(1),
-    sb.from("charge_config").select("max_target_wh").maybeSingle(),
+    first ? sb.from("charge_outlets").select("*").order("id") : null,
+    first ? sb.from("charge_tariffs").select("price_per_kwh").order("effective_from", { ascending: false }).limit(1) : null,
+    first ? sb.from("charge_config").select("max_target_wh").maybeSingle() : null,
     sb.from("charge_sessions").select("*").eq("user_id", u).order("created_at", { ascending: false }).limit(1)
   ]);
-  S.outlets = q[0].data || [];
-  S.tariff = q[1].data && q[1].data[0] ? q[1].data[0].price_per_kwh : 0;
-  S.maxWh = q[2].data ? q[2].data.max_target_wh : 5000;
+  if (first) {
+    S.outlets = q[0].data || [];
+    S.tariff = q[1].data && q[1].data[0] ? q[1].data[0].price_per_kwh : 0;
+    S.maxWh = q[2].data ? q[2].data.max_target_wh : 5000;
+    S.loadedStatic = true;
+  }
   S.sess = q[3].data && q[3].data[0] ? q[3].data[0] : null;
   var hadTop = !!S.topup;
   var wq = await Promise.all([
@@ -107,7 +111,8 @@ async function load() {
   if (bz.error) bz = await sb.from("charge_sessions").select("outlet_id").in("status", ["pending", "running"]);
   S.busy = {};
   (bz.data || []).forEach(function (x) { S.busy[x.outlet_id] = true; });
-  if (S.admin) {
+  if (S.admin && (Date.now() - (S.adminAt || 0) > 15000 || S.tab === "admin")) {
+    S.adminAt = Date.now();
     var aq = await Promise.all([
       sb.from("charge_topups").select("*").eq("status", "pending").order("created_at"),
       sb.from("charge_sessions").select("*").eq("payment_status", "unpaid").order("created_at", { ascending: false }).limit(50)
@@ -152,7 +157,10 @@ async function loadLokasi() {
 function seenId() { try { return localStorage.getItem("omb_seen"); } catch (e) { return null; } }
 function topbar(t, act, v) { return '<div class="top">' + (act ? '<button data-act="' + act + '" data-v="' + (v || "") + '" aria-label="Kembali">' + ic("back") + '</button>' : '<i></i>') + '<b>' + t + '</b><i></i></div>'; }
 function mm(sec) { sec = Math.max(0, Math.round(sec)); return [sec / 3600 | 0, (sec % 3600) / 60 | 0, sec % 60].map(function (n) { return String(n).padStart(2, "0"); }).join(":"); }
-// Tarif per 1 Poin (1.000 Wh). Total tanpa koma, dibulatkan ke atas ke rupiah penuh (1.239,12 -> 1.240). Pemakaian di bawah MIN_BILL_WH (0,02 Poin) belum dihitung.
+// Tagihan QRIS = total biaya - coin terpakai (rupiah penuh, tanpa pembulatan Rp100)
+function dueQris(s) { var t = Number(s.amount_idr || 0), c = Number(s.amount_coin || 0); return s.amount_idr == null && s.amount_qris != null ? Number(s.amount_qris) : Math.max(0, t - c); }
+// Tarif per 1 Poin (1.000 Wh). Total tanpa koma, dibulatkan ke atas ke rupiah penuh (1.239,12 -> 1.240).
+// Pemakaian di bawah MIN_BILL_WH (0,02 Poin) belum dihitung.
 var MIN_BILL_WH = 20;
 function estCost(wh) { wh = Number(wh || 0); return wh < MIN_BILL_WH ? 0 : Math.ceil(wh * S.tariff / 1000 - 1e-9); }
 function lokasiStat() { var k = { a: 0, u: 0, x: 0 }; S.outlets.forEach(function (o) { if (S.busy[o.id]) k.u++; else if (o.is_available) k.a++; else k.x++; }); return k; }
@@ -225,7 +233,7 @@ function runView(s) {
     (S.stopDlg ? '<div class="mask"><div class="dlg"><h2 style="margin-top:0">Hentikan Pengisian?</h2><p class="mute">Pengisian akan dihentikan dan tagihan dihitung dari pemakaian.</p><button class="big bad" data-act="stop">Ya, Hentikan</button><button class="big ghost" style="margin-top:10px" data-act="stopno">Batal</button></div></div>' : "");
 }
 function doneView(s) {
-  var cn = Number(s.amount_coin || 0), q = Number(s.amount_qris || 0), e = s.finished_at || s.ended_at || s.updated_at, dur = e ? (new Date(e).getTime() - new Date(s.started_at || s.created_at).getTime()) / 1000 : null;
+  var cn = Number(s.amount_coin || 0), q = dueQris(s), e = s.finished_at || s.ended_at || s.updated_at, dur = e ? (new Date(e).getTime() - new Date(s.started_at || s.created_at).getTime()) / 1000 : null;
   return topbar("Rincian Pengisian") + '<div class="card"><div class="row"><span class="pill" style="width:46px;height:46px;justify-content:center;border-radius:50%">' + ic("check") + '</span><div><b style="font-size:18px">Pengisian Selesai</b><div class="mute">' + dt(s.created_at) + '</div></div></div>' +
     '<div class="kv"><span>Colokan</span><b>Colokan ' + s.outlet_id + '</b></div><div class="kv"><span>Energi terpakai</span><b>' + poin(s.used_wh) + ' Poin</b></div><div class="kv"><span>Durasi</span><b>' + (dur != null && dur >= 0 ? mm(dur) : "—") + '</b></div></div>' +
     '<h2>Rincian Biaya</h2><div class="card"><div class="kv" style="border:0;margin:0"><span>Total biaya</span><b>' + rp(s.amount_idr) + '</b></div>' + (cn > 0 ? '<div class="kv"><span>Dibayar dengan Coin</span><b>' + rp(cn) + '</b></div>' : "") + (q > 0 ? '<div class="kv"><span>Dibayar dengan QRIS</span><b>' + rp(q) + '</b></div>' : "") + '<div class="kv"><span>Status</span><span class="tag paid">Lunas</span></div></div>' +
@@ -235,7 +243,7 @@ function sessItem(x) {
   var run = x.status === "pending" || x.status === "running";
   var tg = run ? '<span class="tag run">Berjalan</span>' : x.payment_status === "paid" ? '<span class="tag paid">Lunas</span>' : x.payment_status === "unpaid" ? '<span class="tag unpaid">Belum bayar</span>' : '<span class="tag">' + esc(x.status) + '</span>';
   return '<div class="card"><div class="row sp"><div class="row"><span class="mi">' + ic("bolt") + '</span><div><b>Pengisian Colokan ' + x.outlet_id + '</b><div class="mute">' + dt(x.created_at) + '</div></div></div>' + tg + '</div><div class="row sp" style="margin-top:8px"><span>' + poin(x.used_wh) + ' Poin</span><b>' + rp(x.amount_idr) + '</b></div>' +
-    (Number(x.amount_coin) > 0 ? '<div class="mute">Coin ' + rp(x.amount_coin) + (x.amount_qris ? ' · QRIS ' + rp(x.amount_qris) : '') + '</div>' : '') + '</div>';
+    (Number(x.amount_coin) > 0 ? '<div class="mute">Coin ' + rp(x.amount_coin) + (dueQris(x) ? ' · QRIS ' + rp(dueQris(x)) : '') + '</div>' : '') + '</div>';
 }
 
 var ST = { stream: null, timer: null, starting: false, bad: "", at: 0 };
@@ -399,7 +407,7 @@ function userView() {
   if (activeSess) return runView(s);
   if (S.topupOpen) return topupView();
   if (s && s.payment_status === "unpaid") {
-    var due = s.amount_qris != null ? Number(s.amount_qris) : Number(s.amount_idr), cn = Number(s.amount_coin || 0);
+    var due = dueQris(s), cn = Number(s.amount_coin || 0);
     var wa = "https://wa.me/6285128052599?text=" + encodeURIComponent("Halo admin OMB Service, saya " + nm() + " sudah membayar tagihan charge " + rp(due) + " (" + poin(s.used_wh) + " Poin, Colokan " + s.outlet_id + "). Mohon diverifikasi.");
     return topbar("Pembayaran") + '<div class="card"><span class="mute">' + (cn > 0 ? "Sisa Pembayaran" : "Total Pembayaran") + '</span><div class="num" style="color:var(--acc)">' + rp(due) + '</div>' +
       '<div class="kv"><span>Pemakaian</span><b>' + poin(s.used_wh) + ' Poin</b></div><div class="kv"><span>Colokan</span><b>Colokan ' + s.outlet_id + '</b></div>' +
@@ -491,7 +499,7 @@ function buildCsv(rows, names) {
   var lines = [head].concat(rows.map(function (x) {
     var a = names[x.member_id] || {};
     return [fdt(x.created_at), x.id, a.id_anggota || "", a.nama_panggilan || a.nama || "", x.outlet_id, x.status, pn(x.target_wh), pn(x.used_wh), rn(x.tariff_per_kwh),
-      rn(x.amount_idr), rn(x.amount_coin), x.amount_idr == null ? "" : rn(x.amount_qris != null ? x.amount_qris : x.amount_idr), x.payment_status || "", fdt(x.paid_at), x.stop_reason || ""];
+      rn(x.amount_idr), rn(x.amount_coin), x.amount_idr == null ? "" : rn(dueQris(x)), x.payment_status || "", fdt(x.paid_at), x.stop_reason || ""];
   }));
   return lines.map(function (l) { return l.map(csvCell).join(";"); }).join("\r\n");
 }
@@ -580,7 +588,7 @@ function sessRow(x) {
   if (x.status === "pending") btn += '<button class="sm ghost" data-act="cancel" data-v="' + x.id + '">Batalkan</button> ';
   var pay = x.payment_status === "paid" ? "paid" : x.payment_status === "unpaid" ? "unpaid" : "";
   var cn = Number(x.amount_coin || 0);
-  var tagih = x.payment_status === "unpaid" ? '<div><b>Tagih QRIS ' + rp(x.amount_qris != null ? x.amount_qris : x.amount_idr) + '</b>' + (cn ? ' <span class="mute">(coin ' + rp(cn) + ' sudah terpakai)</span>' : '') + '</div>' : (cn ? '<div class="mute">Coin ' + rp(cn) + (x.amount_qris ? ' · QRIS ' + rp(x.amount_qris) : '') + '</div>' : '');
+  var tagih = x.payment_status === "unpaid" ? '<div><b>Tagih QRIS ' + rp(dueQris(x)) + '</b>' + (cn ? ' <span class="mute">(coin ' + rp(cn) + ' sudah terpakai)</span>' : '') + '</div>' : (cn ? '<div class="mute">Coin ' + rp(cn) + (dueQris(x) ? ' · QRIS ' + rp(dueQris(x)) : '') + '</div>' : '');
   return '<div class="s"><div class="row sp"><b>' + esc(S.names[x.member_id] || "Member " + x.member_id) + '</b><span class="tag ' + (x.status === "running" ? "run" : pay) + '">' + esc(x.payment_status === "unpaid" ? "belum bayar" : x.status) + '</span></div>' +
     '<div class="mute">Colokan ' + x.outlet_id + ' - ' + dt(x.created_at) + '</div>' +
     '<div>' + (x.used_wh != null ? poin(x.used_wh) + ' Poin, ' + rp(x.amount_idr) : 'Target ' + poin(x.target_wh) + ' Poin') +
@@ -805,8 +813,9 @@ document.addEventListener("click", async function (e) {
       var ins = await sb.from("charge_tariffs").insert({ price_per_kwh: p });
       if (ins.error) throw new Error("Gagal menyimpan tarif");
       toast("Tarif disimpan");
+      S.loadedStatic = false;
     }
-    S.sig = ""; load();
+    S.sig = ""; S.adminAt = 0; load();
   } catch (err) { toast(err.message); b.disabled = false; }
 });
 
@@ -865,7 +874,27 @@ document.addEventListener("input", function (e) {
   if (id === "as") { S.asq = e.target.value; var al = document.getElementById("alist"); if (al) al.innerHTML = unlinkedRows(); }
   if (id === "ms") { S.msq = e.target.value; var ml = document.getElementById("mlist"); if (ml) ml.innerHTML = memberRows(); }
 });
-setInterval(function () { if (S.user && document.visibilityState === "visible") load(); }, 4000);
+// Polling adaptif: rapat (4 dtk) hanya saat ada sesi aktif / top-up menunggu, selain itu 30 dtk.
+var loadBusy = false;
+async function safeLoad() {
+  if (loadBusy) return;
+  loadBusy = true;
+  try { await load(); } catch (e) {} finally { loadBusy = false; }
+}
+function nextDelay() {
+  var active = S.sess && (S.sess.status === "pending" || S.sess.status === "running");
+  return (active || S.topup) ? 4000 : 30000;
+}
+(function loadLoop() {
+  setTimeout(async function () {
+    if (S.user && document.visibilityState === "visible") await safeLoad();
+    loadLoop();
+  }, nextDelay());
+})();
+// segarkan segera saat tab kembali dibuka
+document.addEventListener("visibilitychange", function () {
+  if (S.user && document.visibilityState === "visible") safeLoad();
+});
 boot();
 if ("serviceWorker" in navigator) window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); });
 setInterval(function () { document.querySelectorAll("[data-since]").forEach(function (e) { e.textContent = mm((Date.now() - Number(e.dataset.since)) / 1000); }); }, 1000);
