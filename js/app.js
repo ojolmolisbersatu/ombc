@@ -152,9 +152,9 @@ async function loadLokasi() {
 function seenId() { try { return localStorage.getItem("omb_seen"); } catch (e) { return null; } }
 function topbar(t, act, v) { return '<div class="top">' + (act ? '<button data-act="' + act + '" data-v="' + (v || "") + '" aria-label="Kembali">' + ic("back") + '</button>' : '<i></i>') + '<b>' + t + '</b><i></i></div>'; }
 function mm(sec) { sec = Math.max(0, Math.round(sec)); return [sec / 3600 | 0, (sec % 3600) / 60 | 0, sec % 60].map(function (n) { return String(n).padStart(2, "0"); }).join(":"); }
-// Tarif per 1 Poin (1.000 Wh). Tanpa pembulatan. Pemakaian di bawah MIN_BILL_WH (0,02 Poin) belum dihitung.
+// Tarif per 1 Poin (1.000 Wh). Total tanpa koma, dibulatkan ke atas ke rupiah penuh (1.239,12 -> 1.240). Pemakaian di bawah MIN_BILL_WH (0,02 Poin) belum dihitung.
 var MIN_BILL_WH = 20;
-function estCost(wh) { wh = Number(wh || 0); return wh < MIN_BILL_WH ? 0 : wh * S.tariff / 1000; }
+function estCost(wh) { wh = Number(wh || 0); return wh < MIN_BILL_WH ? 0 : Math.ceil(wh * S.tariff / 1000 - 1e-9); }
 function lokasiStat() { var k = { a: 0, u: 0, x: 0 }; S.outlets.forEach(function (o) { if (S.busy[o.id]) k.u++; else if (o.is_available) k.a++; else k.x++; }); return k; }
 function menuBtn(i, t, sub, act, v, b) { return '<button class="menu" data-act="' + act + '" data-v="' + v + '"><span class="mi' + (b ? " b" : "") + '">' + ic(i) + '</span><span class="t"><b>' + t + '</b>' + (sub ? '<small>' + sub + '</small>' : "") + '</span>' + ic("chev") + '</button>'; }
 function homeView() {
