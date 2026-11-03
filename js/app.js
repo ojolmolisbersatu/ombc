@@ -4,16 +4,26 @@ var ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 var QRIS_STATIC = "00020101021126570011ID.DANA.WWW011893600915303471271802090347127180303UMI51440014ID.CO.QRIS.WWW0215ID10265837741240303UMI5204739453033605802ID5916Semilir Semarang6013Kota Semarang6105501166304285A"; // dari OMB Nota Cas
 var API = SUPABASE_URL + "/functions/v1/charge-api";
 
+var PEND = new URLSearchParams(location.search).get("charger"); // dari QR charger: ?charger=<id colokan>
 var sb = supabase.createClient(SUPABASE_URL, ANON_KEY);
 var $app = document.getElementById("app");
-var S = { user: null, admin: false, tab: "charge", adminMenu: "sessions", outlets: [], tariff: 0, maxWh: 5000, sess: null, all: [], names: {}, outlet: 1, sig: "", profile: null, busy: {}, tgt: null, custom: "", pwOpen: false, np1: "", np2: "", members: null, msq: "", unl: null, asq: "", coin: null, topup: null, tops: [], unpaid: [], ledger: [], rtab: "sesi", topupOpen: false, tamt: 0, tsq: "", exFrom: "", exTo: "", exUser: "", pwShow: {}, wallets: {} };
+var S = { page: "home", sub: null, stopDlg: false, user: null, admin: false, tab: "charge", adminMenu: "sessions", outlets: [], tariff: 0, maxWh: 5000, sess: null, all: [], names: {}, outlet: 1, sig: "", profile: null, busy: {}, tgt: null, custom: "", mode: "poin", rp: 0, pwOpen: false, np1: "", np2: "", members: null, msq: "", unl: null, asq: "", coin: null, topup: null, tops: [], unpaid: [], ledger: [], rtab: "semua", topupOpen: false, tamt: 0, tsq: "", exFrom: "", exTo: "", exUser: "", pwShow: {}, wallets: {} };
 (function () { var n = new Date(); S.exTo = ymd(n); S.exFrom = ymd(new Date(n.getFullYear(), n.getMonth(), 1)); })();
 
 function esc(t) { return String(t == null ? "" : t).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
 function rp(n) { return "Rp" + Number(n || 0).toLocaleString("id-ID"); }
 // Hasil selalu dalam Wh (bilangan bulat), karena server dan Shelly memakai Wh.
+var MAX_RP = 12500; // batas nominal per pengisian (Rp)
+// Nominal Rp -> Wh (dibulatkan ke bawah agar biaya tidak melebihi nominal)
+function rpToWh(r) {
+  if (!(r > 0) || !(S.tariff > 0)) return 0;
+  var wh = Math.floor(r * 1000 / S.tariff);
+  while (wh > 0 && estCost(wh) > r) wh--;
+  return wh;
+}
 function tgtVal() {
   var t;
+  if (S.mode === "rp") return S.rp > 0 && S.rp <= MAX_RP ? rpToWh(S.rp) : 0;
   if (S.tgt === "custom") {
     var p = parseFloat(String(S.custom).replace(",", "."));
     t = isFinite(p) ? Math.round(p * 1000) : 0;
@@ -61,7 +71,7 @@ async function api(path, body) {
     body: JSON.stringify(body || {})
   });
   var j = await r.json().catch(function () { return {}; });
-  if (!r.ok) throw new Error(j.message || j.error || "Gagal (" + r.status + ")");
+  if (!r.ok) throw new Error(j.message || (j.error === "SERVER_ERROR" ? "Terjadi kesalahan di server, coba lagi" : j.error === "Unauthorized" ? "Sesi habis, silakan login ulang" : j.error) || "Gagal (" + r.status + ")");
   return j;
 }
 
@@ -119,18 +129,166 @@ async function load() {
   if (S.admin && S.tab === "admin" && S.unl === null) {
     try { S.unl = (await api("/admin/unlinked")).anggota || []; } catch (e) { S.unl = []; toast("Daftar anggota gagal dimuat: " + e.message); }
   }
-  var sig = JSON.stringify([S.sess, S.all, S.tariff, S.tab, S.adminMenu, S.outlets, S.busy, S.members, S.unl, S.pwOpen, S.hist, S.wallets, S.coin, S.topup, S.tops, S.unpaid, S.ledger, S.rtab, S.topupOpen]);
+  var sig = JSON.stringify([S.sess, S.all, S.tariff, S.tab, S.adminMenu, S.outlets, S.busy, S.members, S.unl, S.pwOpen, S.hist, S.wallets, S.coin, S.topup, S.tops, S.unpaid, S.ledger, S.rtab, S.topupOpen, S.page, S.sub, S.stopDlg, S.outlet]);
   var typing = document.activeElement && document.activeElement.tagName === "INPUT";
-  if (sig !== S.sig && !typing) { S.sig = sig; render(); } // tunda render saat pengguna sedang mengetik
+  if (sig !== S.sig && !typing && !(ST.stream && document.getElementById("qv"))) { S.sig = sig; render(); } // tunda render saat pengguna sedang mengetik
+}
+
+var LOKASI = { nama: "SPKLU OMB Semilir", alamat: "Semilir, Kota Semarang", jam: "24 Jam", fasilitas: ["Toilet", "Parkir", "Warung"], lat: null, lng: null }; // lat & lng: koordinat lokasi (contoh -6.9932, 110.4203). Selama kosong, peta tampil sebagai gambar hiasan // edit sesuai kondisi lokasi
+function driveImg(u) {
+  if (!u) return "";
+  var m = /\/d\/([\w-]+)/.exec(u) || /[?&]id=([\w-]+)/.exec(u);
+  return m && /drive\.google\.com/.test(u) ? "https://lh3.googleusercontent.com/d/" + m[1] : u;
+}
+async function loadLokasi() {
+  try {
+    var r = await sb.rpc("charge_stations_public"), x = r.data && r.data[0]; if (r.error || !x) return;
+    LOKASI.nama = x.name || LOKASI.nama; LOKASI.alamat = x.address || LOKASI.alamat;
+    if (x.open_hours) LOKASI.jam = x.open_hours === "00:00-00:00" ? "24 Jam" : x.open_hours;
+    LOKASI.foto = driveImg(x.photo_url); LOKASI.fasilitas = x.facilities || [];
+    if (x.lat != null && x.lng != null) { LOKASI.lat = Number(x.lat); LOKASI.lng = Number(x.lng); }
+  } catch (e) {}
+}
+function seenId() { try { return localStorage.getItem("omb_seen"); } catch (e) { return null; } }
+function topbar(t, act, v) { return '<div class="top">' + (act ? '<button data-act="' + act + '" data-v="' + (v || "") + '" aria-label="Kembali">' + ic("back") + '</button>' : '<i></i>') + '<b>' + t + '</b><i></i></div>'; }
+function mm(sec) { sec = Math.max(0, Math.round(sec)); return [sec / 3600 | 0, (sec % 3600) / 60 | 0, sec % 60].map(function (n) { return String(n).padStart(2, "0"); }).join(":"); }
+// Tarif per 1 Poin (1.000 Wh). Tanpa pembulatan. Pemakaian di bawah MIN_BILL_WH (0,02 Poin) belum dihitung.
+var MIN_BILL_WH = 20;
+function estCost(wh) { wh = Number(wh || 0); return wh < MIN_BILL_WH ? 0 : wh * S.tariff / 1000; }
+function lokasiStat() { var k = { a: 0, u: 0, x: 0 }; S.outlets.forEach(function (o) { if (S.busy[o.id]) k.u++; else if (o.is_available) k.a++; else k.x++; }); return k; }
+function menuBtn(i, t, sub, act, v, b) { return '<button class="menu" data-act="' + act + '" data-v="' + v + '"><span class="mi' + (b ? " b" : "") + '">' + ic(i) + '</span><span class="t"><b>' + t + '</b>' + (sub ? '<small>' + sub + '</small>' : "") + '</span>' + ic("chev") + '</button>'; }
+function homeView() {
+  return '<div style="margin:4px 0 12px"><div class="mute">Halo,</div><p class="hello">' + esc(nm()) + '</p><div class="mute">Selamat beraktivitas, semoga selalu lancar!</div></div>' + coinCard() + pendTop() +
+    menuBtn("scan", "Scan QR", "Langsung mulai pengisian", "page", "scan") + menuBtn("pin", "Pilih Lokasi", "Lihat daftar lokasi terdekat", "page", "map", 1) +
+    '<div class="card" style="background:var(--mist);color:var(--ink);border:0"><b>Nikmati pengalaman ngecas yang lebih mudah dengan OMB Service</b></div>';
+}
+function scanView() {
+  return topbar("Scan QR Lokasi", "page", "home") + '<div class="scan"><video id="qv" autoplay playsinline muted></video><i></i><div id="qerr" class="qerr"></div></div>' +
+    '<p class="mute" style="text-align:center">Arahkan kamera ke QR Code untuk memulai</p>' + menuBtn("scan", "Input ID Lokasi", "Jika tidak ada QR code", "inputid", "");
+}
+var MAPI = null;
+function initMap() {
+  var el = document.getElementById("lmap");
+  if (MAPI) { try { MAPI.remove(); } catch (e) {} MAPI = null; }
+  if (!el || typeof L === "undefined") return;
+  MAPI = L.map(el, { zoomControl: false }).setView([LOKASI.lat, LOKASI.lng], 16);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(MAPI);
+  L.marker([LOKASI.lat, LOKASI.lng], { icon: L.divIcon({ className: "", html: '<div class="pin">⚡</div>', iconSize: [36, 36], iconAnchor: [18, 18] }) }).addTo(MAPI);
+}
+function mapView() {
+  var k = lokasiStat();
+  return topbar("Pilih Lokasi", "page", "home") + '<div class="mapbar">' + ic("search") + ' Cari lokasi, nama...</div>' + (LOKASI.lat != null ? '<div class="map" id="lmap"></div>' : '<div class="map"><svg viewBox="0 0 300 300" width="100%" height="100%" preserveAspectRatio="xMidYMid slice"><path d="M-10 90L310 140M60 -10L110 310M-10 230L310 200M220 -10L180 310" stroke="#FFFFFF" stroke-width="12" fill="none"/><g transform="translate(150 150)"><circle r="22" fill="#183B56" opacity=".2"/><circle r="11" fill="#183B56"/><path d="M-3 -6L-6 1h4l-1 5 6-7h-4z" fill="#D9FF64"/></g></svg></div>') +
+    '<div class="sheet"><b>' + esc(LOKASI.nama) + '</b><div class="mute">' + k.a + ' tersedia · ' + esc(LOKASI.jam) + '</div><button class="big acc" style="margin-top:10px" data-act="page" data-v="detail">Lihat Detail</button>' +
+    (LOKASI.lat != null ? '<a class="btn ghost" style="margin-top:8px;padding:12px;font-size:16px" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=' + LOKASI.lat + "," + LOKASI.lng + '">Petunjuk arah</a>' : "") + '</div>';
+}
+function detailView() {
+  var k = lokasiStat(), sel = S.outlets.filter(function (x) { return x.id === S.outlet; })[0], selOk = sel && sel.is_available && !S.busy[sel.id];
+  var list = S.outlets.map(function (x) {
+    var u = !!S.busy[x.id], ok = x.is_available && !u;
+    return '<button class="ch' + (S.outlet === x.id ? " sel" : "") + '" data-act="outlet" data-v="' + x.id + '"' + (ok ? "" : " disabled") + '><span class="mi">' + ic("bolt") + '</span><b>' + esc(x.name) + '</b><span class="st" style="color:' + (u ? "var(--blue)" : ok ? "var(--ok)" : "var(--bad)") + '">' + (u ? "Terisi" : ok ? "Tersedia" : "Tidak tersedia") + '</span></button>';
+  }).join("");
+  return topbar("Detail Lokasi", "page", "map") + '<div class="card" style="background:' + (LOKASI.foto ? "rgba(24,59,86,.55) url(" + String(LOKASI.foto).replace(/[()'"\s]/g, "") + ") center/cover;background-blend-mode:multiply" : "var(--ink)") + ';color:#fff;border:0;min-height:130px;display:flex;flex-direction:column;justify-content:flex-end"><b style="font-size:20px">' + esc(LOKASI.nama) + '</b><div>' + esc(LOKASI.alamat) + ' · ' + esc(LOKASI.jam) + '</div></div>' +
+    '<div class="chips"><span class="tag paid">' + k.a + ' Tersedia</span><span class="tag run">' + k.u + ' Terisi</span><span class="tag">' + k.x + ' Nonaktif</span></div>' +
+    (LOKASI.fasilitas.length ? '<div class="mute">Fasilitas: ' + LOKASI.fasilitas.map(esc).join(" · ") + '</div>' : "") + '<h2>Daftar Lokasi</h2>' + list +
+    '<button class="big acc" style="margin-top:12px" data-act="page" data-v="bayar"' + (selOk ? "" : " disabled") + '>Pilih Tempat</button>';
+}
+function estHtml() {
+  var c = estCost(tgtVal()), b = S.coin || 0, f = function (n) { return Number(n).toLocaleString("id-ID"); };
+  return (S.mode === "rp" && S.rp > MAX_RP ? '<div class="neg" style="font-weight:700;margin-bottom:6px">Maksimal ' + rp(MAX_RP) + '</div>' : "") + '<div class="kv" style="border:0;margin:0"><span>Perkiraan biaya</span><b>' + rp(c) + '</b></div>' + (S.mode === "rp" && c ? '<div class="kv"><span>Setara</span><b>' + poin(tgtVal()) + ' Poin</b></div>' : "") + '<div class="kv"><span>Saldo Coin</span><b>' + f(b) + ' Coin</b></div><div class="kv"><span>' + (b >= c ? "Perkiraan sisa saldo" : "Kekurangan via QRIS") + '</span><b>' + (b >= c ? f(b - c) + " Coin" : rp(c - b)) + '</b></div>';
+}
+function bayarView() {
+  var o = S.outlets.filter(function (x) { return x.id === S.outlet; })[0] || {};
+  var chips = [1000, 2500, 5000].map(function (n) { return '<button class="' + (S.tgt === n ? "sel" : "") + '" data-act="tgt" data-v="' + n + '">' + (n / 1000).toLocaleString("id-ID") + ' Poin</button>'; }).join("");
+  var rpChips = [2500, 5000, 10000].map(function (n) { return '<button class="' + (S.rp === n ? "sel" : "") + '" data-act="rpchip" data-v="' + n + '">' + rp(n) + '</button>'; }).join("");
+  var seg = '<div class="seg">' + [["poin", "Poin"], ["rp", "Nominal (Rp)"]].map(function (x) { return '<button class="' + (S.mode === x[0] ? "sel" : "") + '" data-act="pmode" data-v="' + x[0] + '">' + x[1] + '</button>'; }).join("") + '</div>';
+  var isi = S.mode === "rp" ?
+    '<input id="cr" type="number" inputmode="numeric" step="100" min="100" max="' + MAX_RP + '" placeholder="Ketik nominal (Rp), maks ' + MAX_RP.toLocaleString("id-ID") + '" value="' + (S.rp || "") + '">' +
+    '<div class="chips row" style="margin:10px 0">' + rpChips + '</div><div class="mute">Maksimal ' + rp(MAX_RP) + ' per pengisian. 1 Poin = ' + rp(S.tariff) + '</div>' :
+    '<input id="cp" type="number" inputmode="decimal" step="0.01" min="0.01" max="' + (S.maxWh / 1000) + '" placeholder="Masukkan jumlah Poin (maks ' + (S.maxWh / 1000).toLocaleString("id-ID") + ')" value="' + esc(S.tgt === "custom" ? S.custom : "") + '">' +
+    '<div class="chips row" style="margin:10px 0">' + chips + '</div><div class="mute">1 Poin = ' + rp(S.tariff) + '</div>';
+  return topbar("Pembayaran", "page", "detail") + '<div class="menu" style="margin-top:0"><span class="mi">' + ic("bolt") + '</span><span class="t"><b>' + esc(LOKASI.nama) + '</b><small>' + esc(o.name || "") + '</small></span></div>' +
+    '<h2>Jumlah Pengisian</h2>' + seg + isi +
+    '<h2>Pembayaran</h2><div class="card mute">Saat sesi selesai, Saldo Coin dipotong lebih dulu. Kekurangannya dibayar lewat QRIS.</div><div class="card" id="estbox">' + estHtml() + '</div>' +
+    '<button id="startBtn" class="big acc" data-act="start"' + (tgtVal() ? "" : " disabled") + '>⚡ Mulai Pengisian</button>';
+}
+function runView(s) {
+  var run = s.status === "running", used0 = run ? Math.max(0, (s.last_wh || s.start_wh) - s.start_wh) : 0, tg = Number(s.target_wh || 0), used = tg ? Math.min(used0, tg) : used0, pct = tg ? Math.min(100, used / tg * 100) : 0;
+  var t0 = new Date(s.started_at || s.created_at).getTime(), el = (Date.now() - t0) / 1000, left = used > 0 && el > 0 ? Math.max(0, tg - used) / (used / el) : null, C = 2 * Math.PI * 88;
+  var st = s.status === "pending" ? "Menunggu perangkat" : s.stop_requested_at ? "Menghentikan..." : "Mengisi";
+  return topbar("Pengisian Berlangsung") + '<div style="text-align:center"><span class="pill"><span class="dot"></span>' + st + '</span></div>' +
+    '<div class="ring"><svg viewBox="0 0 200 200"><circle cx="100" cy="100" r="88" fill="none" stroke="#D9FF64" stroke-width="14"/><circle cx="100" cy="100" r="88" fill="none" stroke="#183B56" stroke-width="14" stroke-linecap="round" stroke-dasharray="' + (C * pct / 100) + ' ' + C + '"/></svg>' +
+    '<div class="c"><span style="color:var(--warn)">' + ic("bolt") + '</span><div class="num">' + poin(used) + '</div><div class="mute">Poin</div><div class="mute">dari ' + poin(tg) + ' Poin</div></div></div>' +
+    devRows(s) + '<div class="card"><div class="kv" style="border:0;margin:0"><span>Durasi</span><b' + (run ? ' data-since="' + t0 + '"' : "") + '>' + mm(el) + '</b></div><div class="kv"><span>Sisa waktu (estimasi)</span><b>' + (left == null ? "—" : mm(left)) + '</b></div></div>' +
+    '<div class="card"><span class="mute">Biaya aktual (perkiraan)</span><div class="num" style="font-size:28px">' + rp(estCost(used)) + '</div></div>' + coinCard() + pendTop() +
+    '<button class="big bad" style="margin-top:12px" data-act="stopask"' + (s.stop_requested_at ? " disabled" : "") + '>' + ic("power") + ' Akhiri Pengisian</button>' +
+    '<p class="mute">Berhenti saat Anda menekan Akhiri Pengisian, atau otomatis jika tidak ada aliran listrik 10 detik.</p>' +
+    (S.stopDlg ? '<div class="mask"><div class="dlg"><h2 style="margin-top:0">Hentikan Pengisian?</h2><p class="mute">Pengisian akan dihentikan dan tagihan dihitung dari pemakaian.</p><button class="big bad" data-act="stop">Ya, Hentikan</button><button class="big ghost" style="margin-top:10px" data-act="stopno">Batal</button></div></div>' : "");
+}
+function doneView(s) {
+  var cn = Number(s.amount_coin || 0), q = Number(s.amount_qris || 0), e = s.finished_at || s.ended_at || s.updated_at, dur = e ? (new Date(e).getTime() - new Date(s.started_at || s.created_at).getTime()) / 1000 : null;
+  return topbar("Rincian Pengisian") + '<div class="card"><div class="row"><span class="pill" style="width:46px;height:46px;justify-content:center;border-radius:50%">' + ic("check") + '</span><div><b style="font-size:18px">Pengisian Selesai</b><div class="mute">' + dt(s.created_at) + '</div></div></div>' +
+    '<div class="kv"><span>Colokan</span><b>Colokan ' + s.outlet_id + '</b></div><div class="kv"><span>Energi terpakai</span><b>' + poin(s.used_wh) + ' Poin</b></div><div class="kv"><span>Durasi</span><b>' + (dur != null && dur >= 0 ? mm(dur) : "—") + '</b></div></div>' +
+    '<h2>Rincian Biaya</h2><div class="card"><div class="kv" style="border:0;margin:0"><span>Total biaya</span><b>' + rp(s.amount_idr) + '</b></div>' + (cn > 0 ? '<div class="kv"><span>Dibayar dengan Coin</span><b>' + rp(cn) + '</b></div>' : "") + (q > 0 ? '<div class="kv"><span>Dibayar dengan QRIS</span><b>' + rp(q) + '</b></div>' : "") + '<div class="kv"><span>Status</span><span class="tag paid">Lunas</span></div></div>' +
+    '<button class="big acc" data-act="seen">Selesai</button>';
+}
+function sessItem(x) {
+  var run = x.status === "pending" || x.status === "running";
+  var tg = run ? '<span class="tag run">Berjalan</span>' : x.payment_status === "paid" ? '<span class="tag paid">Lunas</span>' : x.payment_status === "unpaid" ? '<span class="tag unpaid">Belum bayar</span>' : '<span class="tag">' + esc(x.status) + '</span>';
+  return '<div class="card"><div class="row sp"><div class="row"><span class="mi">' + ic("bolt") + '</span><div><b>Pengisian Colokan ' + x.outlet_id + '</b><div class="mute">' + dt(x.created_at) + '</div></div></div>' + tg + '</div><div class="row sp" style="margin-top:8px"><span>' + poin(x.used_wh) + ' Poin</span><b>' + rp(x.amount_idr) + '</b></div>' +
+    (Number(x.amount_coin) > 0 ? '<div class="mute">Coin ' + rp(x.amount_coin) + (x.amount_qris ? ' · QRIS ' + rp(x.amount_qris) : '') + '</div>' : '') + '</div>';
+}
+
+var ST = { stream: null, timer: null, starting: false, bad: "", at: 0 };
+function openCharger(id) {
+  var o = S.outlets.filter(function (x) { return String(x.id) === String(id).trim(); })[0];
+  if (!o) { toast("Charger tidak ditemukan"); return false; }
+  if (!o.is_available || S.busy[o.id]) { toast("Charger sedang tidak tersedia"); return false; }
+  S.outlet = o.id; S.tab = "charge"; S.page = "bayar"; return true;
+}
+function chargerFrom(t) {
+  var m = /[?&]charger=([^&#\s]+)/.exec(t); if (m) return decodeURIComponent(m[1]);
+  return /^\d+$/.test(String(t).trim()) ? String(t).trim() : null;
+}
+function stopScan() {
+  if (ST.timer) { clearInterval(ST.timer); ST.timer = null; }
+  if (ST.stream) { ST.stream.getTracks().forEach(function (t) { t.stop(); }); ST.stream = null; }
+}
+function onQr(t) {
+  if (t === ST.bad && Date.now() - ST.at < 3000) return;
+  ST.bad = t; ST.at = Date.now();
+  var id = chargerFrom(t);
+  if (id == null) return toast("QR ini bukan QR Code OMB");
+  if (openCharger(id)) { stopScan(); S.sig = ""; render(); }
+}
+async function startScan() {
+  if (ST.starting) return;
+  var fail = function () { stopScan(); var e = document.getElementById("qerr"); if (e) e.textContent = "Kamera tidak bisa dibuka. Izinkan akses kamera untuk aplikasi ini, atau pakai Input ID Lokasi."; };
+  ST.starting = true;
+  try {
+    if (!ST.stream) {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error("no camera api");
+      ST.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+    }
+    var v = document.getElementById("qv"); if (!v) return stopScan();
+    v.srcObject = ST.stream; v.muted = true; await v.play();
+  } catch (e) { return fail(); } finally { ST.starting = false; }
+  if (ST.timer) return;
+  var cv = document.createElement("canvas"), cx = cv.getContext("2d", { willReadFrequently: true });
+  ST.timer = setInterval(function () {
+    var vid = document.getElementById("qv"); if (!vid || !vid.videoWidth || typeof jsQR !== "function") return;
+    var w = Math.min(480, vid.videoWidth), h = Math.round(vid.videoHeight * w / vid.videoWidth);
+    cv.width = w; cv.height = h; cx.drawImage(vid, 0, 0, w, h);
+    var r = jsQR(cx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: "dontInvert" });
+    if (r && r.data) onQr(r.data);
+  }, 250);
 }
 
 // ===== TAMPILAN =====
 function login(err) {
-  $app.innerHTML = '<div class="login-hero"><img src="icon-192.png" alt="OMB Service" width="96" height="96"><h1>OMB Service</h1><p class="sub">Masuk dengan akun anggota.</p></div><div class="card">' +
+  $app.innerHTML = '<div class="hero"><img src="icon-192.png" alt="OMB Service"><h1>OMB Service</h1><p></p><span class="pill" style="margin-top:12px">Khusus Anggota OMB</span></div><div class="card">' +
     '<label class="mute" for="em">Email</label><input id="em" type="email" autocomplete="username">' +
     '<label class="mute" for="pw">Password</label>' + pwBox("pw", "current-password", "") +
-    '<p class="mute" style="color:var(--bad)">' + esc(err || "") + '</p>' +
-    '<button class="big acc" data-act="login">Masuk</button></div>';
+    '<p class="mute" style="color:var(--bad)">' + esc(err || "") + '</p><button class="big acc" data-act="login">Masuk</button></div>';
 }
 
 function eyeIc(show) {
@@ -151,9 +309,16 @@ function ic(n) {
     riwayat: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
     setting: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
     profil: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
-    admin: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>'
+    admin: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+    back: '<path d="M15 18l-6-6 6-6"/>', chev: '<path d="M9 18l6-6-6-6"/>', check: '<path d="M20 6L9 17l-5-5"/>',
+    scan: '<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 12h10"/>',
+    pin: '<path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>',
+    bolt: '<path d="M13 2L3 14h8l-1 8 10-12h-8z"/>', coin: '<circle cx="12" cy="12" r="10"/><path d="M14.5 9H10a2 2 0 0 0 0 4h4a2 2 0 0 1 0 4H9M12 6v2M12 16v2"/>',
+    power: '<path d="M18.4 6.6a9 9 0 1 1-12.8 0M12 2v10"/>', search: '<circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/>',
+    car: '<path d="M5 17h14M6 17l1-6h10l1 6M7 11l1.5-4h7L17 11"/><circle cx="8" cy="17" r="1.5"/><circle cx="16" cy="17" r="1.5"/>',
+    help: '<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/>', info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>'
   };
-  return '<svg viewBox="0 0 24 24">' + p[n] + '</svg>';
+  return '<svg class="ico" viewBox="0 0 24 24">' + p[n] + '</svg>';
 }
 var BOLT = '<svg viewBox="0 0 24 24"><path d="M13 2L3 14h8l-1 8 10-12h-8z"/></svg>';
 function nm() { var p = S.profile; return p && p.nama ? p.nama : (S.user.email || "Anggota"); }
@@ -162,35 +327,33 @@ function fmt(x, d) { return Number(x).toFixed(d).replace(".", ","); }
 function head() { return '<div class="brand">' + BOLT + '<span><b>OMB</b> Service</span></div>'; }
 
 function navBar() {
-  var items = [["charge", "home", "Home"], ["riwayat", "riwayat", "Riwayat"], ["setting", "setting", "Setting"], ["profil", "profil", "Profil"]];
+  var items = [["charge", "home", "Beranda"], ["riwayat", "riwayat", "Riwayat"], ["profil", "profil", "Profil"]];
   if (S.admin) items.push(["admin", "admin", "Admin", S.tops.length + S.unpaid.length]);
   return '<nav class="nav">' + items.map(function (x) {
-    return '<button class="' + (S.tab === x[0] ? "on" : "") + '" data-act="tab" data-v="' + x[0] + '">' + ic(x[1]) + x[2] + (x[3] ? '<span class="badge">' + x[3] + '</span>' : "") + '</button>';
+    return '<button class="' + (S.tab === x[0] || (x[0] === "profil" && S.tab === "setting") ? "on" : "") + '" data-act="tab" data-v="' + x[0] + '">' + ic(x[1]) + x[2] + (x[3] ? '<span class="badge">' + x[3] + '</span>' : "") + '</button>';
   }).join("") + '</nav>';
 }
 
 // Saldo coin: tempat sudah disiapkan, data belum diisi (S.coin diisi nanti)
 function coinCard() {
   var has = S.coin != null;
-  return '<div class="card"><div class="row sp"><div><span class="mute">Saldo Coin</span><div class="num" style="color:var(--acc);font-size:30px">' +
-    (has ? Number(S.coin).toLocaleString("id-ID") + ' <small class="mute">Coin</small>' : "—") + '</div></div>' +
-    (has ? '<button class="sm acc" data-act="topupform">+ Isi Saldo</button>' : "") + '</div><div class="mute">' + (has ? "1 Coin = Rp1" : "Memuat...") + '</div></div>';
+  return '<div class="coinbox"><div><small>Saldo Coin</small><div class="n">' + (has ? Number(S.coin).toLocaleString("id-ID") : "—") + '</div><small>' + (has ? "1 Coin = Rp1" : "Memuat...") + '</small></div>' +
+    (has ? '<button class="sm" style="background:#fff;color:var(--ink)" data-act="topupform">+ Isi Saldo</button>' : "") + '</div>';
 }
 
 // Arus/tegangan/daya real-time; baris yang datanya kosong disembunyikan
 function devRows(s) {
-  var r = [["Arus (A)", s.last_current_a, 2, "A"], ["Tegangan (V)", s.last_voltage_v, 0, "V"], ["Daya (W)", s.last_power_w, 0, "W"]]
-    .filter(function (x) { return x[1] != null; });
-  if (!r.length) return "";
-  return '<div class="card"><b>Informasi Perangkat</b> <span class="mute">(Real-time)</span>' + r.map(function (x) {
-    return '<div class="kv"><span>' + x[0] + '</span><b>' + fmt(x[1], x[2]) + ' ' + x[3] + '</b></div>';
-  }).join("") + '</div>';
+  var r = [["Daya", s.last_power_w, 0, "W"], ["Tegangan", s.last_voltage_v, 0, "V"], ["Arus", s.last_current_a, 2, "A"]];
+  if (r.every(function (x) { return x[1] == null; })) return "";
+  return '<div class="card tri">' + r.map(function (x) { return '<div><span class="mute">' + x[0] + '</span><b>' + (x[1] == null ? "—" : fmt(x[1], x[2]) + " " + x[3]) + '</b></div>'; }).join("") + '</div>';
 }
 
 function render() {
   if (!S.user) return login();
   var v = S.tab === "admin" && S.admin ? adminView() : S.tab === "riwayat" ? histView() : S.tab === "setting" ? settingView() : S.tab === "profil" ? profilView() : userView();
-  $app.innerHTML = head() + v + navBar();
+  $app.innerHTML = (S.tab === "admin" && S.admin ? head() : "") + v + navBar();
+  if (document.getElementById("qv")) startScan(); else stopScan();
+  initMap();
   var q = document.getElementById("qr");
   if (q) {
     try { new QRCode(q, { text: qrisDynamic(Number(q.dataset.amt)), width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M }); }
@@ -233,71 +396,35 @@ function userView() {
     return '<div class="card"><div class="row"><span class="dot' + (s.status === "running" ? "" : " off") + '"></span><b>Colokan ' + s.outlet_id + ' sedang mengisi</b></div>' +
       '<div class="mute">Pengisian tetap berjalan selama Anda mengisi saldo.</div></div>' + topupView();
   }
-  if (activeSess) {
-    var run = s.status === "running";
-    var used = run ? Math.max(0, (s.last_wh || s.start_wh) - s.start_wh) : 0;
-    var tg = Number(s.target_wh || 0), pct = tg ? Math.min(100, used / tg * 100) : 0;
-    return '<div class="card"><div class="row"><span class="dot' + (run ? "" : " off") + '"></span><b>Colokan ' + s.outlet_id + '</b></div>' +
-      '<div class="mute">Sesi #' + esc(String(s.id).slice(-6).toUpperCase()) + '</div></div>' +
-      '<div class="card"><span class="tag run">' + (s.status === "pending" ? "Menunggu perangkat" : s.stop_requested_at ? "Menghentikan..." : "Sesi aktif") + '</span>' +
-      '<div class="num">' + poin(used) + ' <small class="mute">Poin</small></div>' +
-      '<div class="mute">dari ' + poin(tg) + ' Poin</div><div class="stripe"><i style="width:' + pct + '%"></i></div>' +
-      '<div><b style="color:var(--acc)">' + poin(Math.max(0, tg - used)) + '</b> <span class="mute">Poin tersisa</span></div>' +
-      '<div class="mute" style="margin-top:6px">Perkiraan biaya ' + rp(Math.ceil(used * s.tariff_per_kwh / 1000 / 100) * 100) + '</div></div>' +
-      devRows(s) + coinCard() + pendTop() +
-      '<button class="big bad" data-act="stop"' + (s.stop_requested_at ? " disabled" : "") + '>■ Akhiri Sesi</button>' +
-      '<p class="mute">Berhenti saat Anda menekan Akhiri Sesi, atau otomatis jika tidak ada aliran listrik 10 detik.</p>';
-  }
+  if (activeSess) return runView(s);
   if (S.topupOpen) return topupView();
   if (s && s.payment_status === "unpaid") {
     var due = s.amount_qris != null ? Number(s.amount_qris) : Number(s.amount_idr), cn = Number(s.amount_coin || 0);
     var wa = "https://wa.me/6285128052599?text=" + encodeURIComponent("Halo admin OMB Service, saya " + nm() + " sudah membayar tagihan charge " + rp(due) + " (" + poin(s.used_wh) + " Poin, Colokan " + s.outlet_id + "). Mohon diverifikasi.");
-    return '<h2>Pembayaran</h2><div class="card"><span class="mute">' + (cn > 0 ? "Sisa Pembayaran" : "Total Pembayaran") + '</span><div class="num" style="color:var(--acc)">' + rp(due) + '</div>' +
+    return topbar("Pembayaran") + '<div class="card"><span class="mute">' + (cn > 0 ? "Sisa Pembayaran" : "Total Pembayaran") + '</span><div class="num" style="color:var(--acc)">' + rp(due) + '</div>' +
       '<div class="kv"><span>Pemakaian</span><b>' + poin(s.used_wh) + ' Poin</b></div><div class="kv"><span>Colokan</span><b>Colokan ' + s.outlet_id + '</b></div>' +
       (cn > 0 ? '<div class="kv"><span>Total tagihan</span><b>' + rp(s.amount_idr) + '</b></div><div class="kv"><span>Dibayar dengan coin</span><b>-' + rp(cn) + '</b></div>' : '') + '</div>' +
       '<div class="card" style="text-align:center"><b>Scan untuk Membayar</b><div id="qr" data-amt="' + due + '"></div><div class="mute">Buka aplikasi pembayaran favoritmu dan scan QRIS di atas.</div></div>' +
       '<div class="card mute">Admin akan memverifikasi pembayaran secara manual, lalu Anda bisa mengisi lagi.</div>' +
       '<a class="btn acc" href="' + wa + '" target="_blank" rel="noopener">Saya Sudah Bayar</a>';
   }
-  var o = S.outlets.map(function (x) {
-    var inUse = !!S.busy[x.id], ok = x.is_available && !inUse;
-    return '<button class="oc ' + (S.outlet === x.id ? "sel" : "") + '" data-act="outlet" data-v="' + x.id + '"' + (ok ? "" : " disabled") + '>' + BOLT +
-      '<span>' + esc(x.name) + '<small><span class="dot' + (inUse ? " use" : ok ? "" : " off") + '"></span>' + (inUse ? "Dipakai" : x.is_available ? "Tersedia" : "Tidak tersedia") + '</small></span></button>';
-  }).join("");
-  var chips = [1000, 2500, 5000].map(function (n) {
-    return '<button class="' + (S.tgt === n ? "sel" : "") + '" data-act="tgt" data-v="' + n + '">' + (n / 1000).toLocaleString("id-ID") + ' Poin</button>';
-  }).join("");
-  var last = s && s.payment_status === "paid" ? '<p class="mute">Sesi terakhir: ' + poin(s.used_wh) + ' Poin, ' + rp(s.amount_idr) + (Number(s.amount_coin) > 0 ? ' (lunas, coin ' + rp(s.amount_coin) + (s.amount_qris ? ' + QRIS ' + rp(s.amount_qris) : '') + ')' : ' (lunas)') + '.</p>' : "";
-  return '<p class="hello">Halo, ' + esc(nm()) + ' 👋</p><p class="sub">Pilih colokan dan jumlah poin, lalu tekan Mulai.</p>' + coinCard() + pendTop() +
-    '<h2>Pilih Colokan</h2><div class="ocs">' + o + '</div>' +
-    '<h2>Pilih Jumlah Poin</h2><input id="cp" type="number" inputmode="decimal" step="0.01" min="0.01" max="' + (S.maxWh / 1000) + '" placeholder="Masukkan jumlah Poin (maks ' + (S.maxWh / 1000).toLocaleString("id-ID") + ')" value="' + esc(S.tgt === "custom" ? S.custom : "") + '">' +
-    '<div class="chips row" style="margin:10px 0">' + chips + '</div>' +
-    '<p class="mute">Tagihan dihitung dari pemakaian saat Akhiri Sesi.</p>' + last +
-    '<button id="startBtn" class="big acc" data-act="start"' + (tgtVal() ? "" : " disabled") + '>⚡ MULAI</button>';
+  if (s && s.payment_status === "paid" && String(s.id) !== seenId()) return doneView(s);
+  return S.page === "scan" ? scanView() : S.page === "map" ? mapView() : S.page === "detail" ? detailView() : S.page === "bayar" ? bayarView() : homeView();
 }
 
-function coinHist() {
-  var l = S.ledger || [];
-  var kinds = { topup: "Isi saldo", spend: "Pemakaian saldo", adjust: "Koreksi saldo" };
-  return coinCard() + pendTop() + '<h2>Mutasi Coin</h2>' + (l.length ? l.map(function (x) {
-    var d = Number(x.delta), note = x.kind === "spend" && x.session_id ? "Bayar sesi charge #" + String(x.session_id).slice(-6).toUpperCase() : (x.note || "");
-    return '<div class="card"><div class="row sp"><b>' + (kinds[x.kind] || "Mutasi") + '</b><b class="' + (d >= 0 ? "pos" : "neg") + '">' + (d >= 0 ? "+" : "-") + Math.abs(d).toLocaleString("id-ID") + ' Coin</b></div>' +
-      '<div class="mute">' + dt(x.created_at) + (note ? " · " + esc(note) : "") + '</div><div class="mute">Saldo setelahnya: ' + Number(x.balance_after).toLocaleString("id-ID") + ' Coin</div></div>';
-  }).join("") : '<p class="mute">Belum ada mutasi coin.</p>');
+function coinItem(x) {
+  var kinds = { topup: "Top Up Coin", spend: "Pemakaian saldo", adjust: "Koreksi saldo" };
+  var d = Number(x.delta), note = x.kind === "spend" && x.session_id ? "Bayar sesi charge #" + String(x.session_id).slice(-6).toUpperCase() : (x.note || "");
+  return '<div class="card"><div class="row sp"><div class="row"><span class="mi b">' + ic("coin") + '</span><div><b>' + (kinds[x.kind] || "Mutasi") + '</b><div class="mute">' + dt(x.created_at) + (note ? " · " + esc(note) : "") + '</div></div></div><b class="' + (d >= 0 ? "pos" : "neg") + '">' + (d >= 0 ? "+" : "-") + Math.abs(d).toLocaleString("id-ID") + '</b></div><div class="mute" style="margin-top:6px">Saldo setelahnya: ' + Number(x.balance_after).toLocaleString("id-ID") + ' Coin</div></div>';
 }
 
 function histView() {
-  var h = S.hist || [];
-  var seg = '<div class="seg"><button class="' + (S.rtab === "sesi" ? "sel" : "") + '" data-act="rtab" data-v="sesi">Pengisian</button><button class="' + (S.rtab === "coin" ? "sel" : "") + '" data-act="rtab" data-v="coin">Saldo Coin</button></div>';
-  if (S.rtab === "coin") return '<h2>Riwayat</h2>' + seg + coinHist();
-  return '<h2>Riwayat</h2>' + seg + (h.length ? h.map(function (x) {
-    var run = x.status === "pending" || x.status === "running";
-    var tg = run ? '<span class="tag run">Berjalan</span>' : x.payment_status === "paid" ? '<span class="tag paid">Lunas</span>' :
-      x.payment_status === "unpaid" ? '<span class="tag unpaid">Belum bayar</span>' : '<span class="tag">' + esc(x.status) + '</span>';
-    return '<div class="card"><div class="row sp"><b>Colokan ' + x.outlet_id + '</b>' + tg + '</div><div class="mute">' + dt(x.created_at) +
-      '</div><div class="row sp"><span>' + poin(x.used_wh) + ' Poin</span><b>' + rp(x.amount_idr) + '</b></div>' +
-      (Number(x.amount_coin) > 0 ? '<div class="mute">Coin ' + rp(x.amount_coin) + (x.amount_qris ? ' · QRIS ' + rp(x.amount_qris) : '') + '</div>' : '') + '</div>';
-  }).join("") : '<p class="mute">Belum ada riwayat.</p>');
+  var h = S.hist || [], l = S.ledger || [], t = S.rtab, it = [];
+  var seg = '<div class="seg" style="grid-template-columns:repeat(3,1fr)">' + [["semua", "Semua"], ["sesi", "Pengisian"], ["coin", "Saldo Coin"]].map(function (x) { return '<button class="' + (t === x[0] ? "sel" : "") + '" data-act="rtab" data-v="' + x[0] + '">' + x[1] + '</button>'; }).join("") + '</div>';
+  if (t !== "coin") h.forEach(function (x) { it.push({ d: x.created_at, h: sessItem(x) }); });
+  if (t !== "sesi") l.forEach(function (x) { it.push({ d: x.created_at, h: coinItem(x) }); });
+  it.sort(function (a, b) { return new Date(b.d) - new Date(a.d); });
+  return topbar("Riwayat") + seg + (t === "coin" ? coinCard() + pendTop() : "") + (it.length ? it.map(function (i) { return i.h; }).join("") : '<p class="mute">Belum ada riwayat.</p>');
 }
 
 function settingView() {
@@ -305,15 +432,16 @@ function settingView() {
     '<label class="mute" for="np1">Password baru (minimal 8 karakter)</label>' + pwBox("np1", "new-password", S.np1) +
     '<label class="mute" for="np2">Ulangi password baru</label>' + pwBox("np2", "new-password", S.np2) +
     '<div class="row" style="margin-top:10px"><button class="acc" data-act="pwsave">Simpan</button><button class="ghost" data-act="pwform">Batal</button></div></div>' : "";
-  return '<h2>Setting</h2><div class="card"><button class="ghost big" data-act="pwform">Ubah password</button></div>' + pw +
+  return topbar("Pengaturan", "tab", "profil") + '<div class="card"><button class="ghost big" data-act="pwform">Ubah password</button></div>' + pw +
     '<button class="big bad" data-act="logout">Keluar</button>';
 }
 
 function profilView() {
   var p = S.profile;
-  return '<h2>Profil</h2><div class="card"><div class="num" style="font-size:26px">' + esc(nm()) + '</div>' +
-    (p && p.id != null ? '<span class="tag">ID Anggota: ' + esc(p.id) + '</span>' : "") +
-    '<div class="mute" style="margin-top:8px">' + esc(S.user.email || "") + '</div></div>' + coinCard();
+  return topbar("Profil") + '<div class="card row"><span class="av">' + ic("profil") + '</span><div><b style="font-size:18px">' + esc(nm()) + '</b><div class="mute">' + (p && p.id != null ? "ID Anggota: " + esc(p.id) : "") + '</div><span class="pill">Anggota Aktif</span></div></div>' + coinCard() +
+    (S.sub === "diri" ? '<div class="card"><div class="kv" style="border:0;margin:0"><span>Nama</span><b>' + esc(nm()) + '</b></div><div class="kv"><span>ID Anggota</span><b>' + esc(p && p.id != null ? p.id : "-") + '</b></div><div class="kv"><span>Email</span><b>' + esc(S.user.email || "-") + '</b></div></div>' : "") +
+    menuBtn("profil", "Data Diri", "", "sub", "diri") + menuBtn("car", "Kendaraan", "", "soon", "Kendaraan") + menuBtn("coin", "Saldo & Riwayat", "", "rcoin", "", 1) + menuBtn("setting", "Pengaturan", "", "tab", "setting") +
+    menuBtn("help", "Bantuan", "Hubungi admin lewat WhatsApp", "help", "", 1) + menuBtn("info", "Tentang OMB Service", "", "soon", "Halaman Tentang") + '<button class="big ghost" style="margin-top:6px" data-act="logout">Keluar</button>';
 }
 
 function memberRows() {
@@ -456,13 +584,13 @@ function sessRow(x) {
   return '<div class="s"><div class="row sp"><b>' + esc(S.names[x.member_id] || "Member " + x.member_id) + '</b><span class="tag ' + (x.status === "running" ? "run" : pay) + '">' + esc(x.payment_status === "unpaid" ? "belum bayar" : x.status) + '</span></div>' +
     '<div class="mute">Colokan ' + x.outlet_id + ' - ' + dt(x.created_at) + '</div>' +
     '<div>' + (x.used_wh != null ? poin(x.used_wh) + ' Poin, ' + rp(x.amount_idr) : 'Target ' + poin(x.target_wh) + ' Poin') +
-    (x.status === "running" ? ' <span class="mute">(terakhir ' + poin((x.last_wh || x.start_wh) - x.start_wh) + ' Poin)</span>' : "") + '</div>' + tagih +
+    (x.status === "running" ? ' <span class="mute">(terakhir ' + poin(Math.min((x.last_wh || x.start_wh) - x.start_wh, x.target_wh || Infinity)) + ' Poin)</span>' : "") + '</div>' + tagih +
     (x.stop_reason ? '<div class="mute">Berhenti: ' + esc(x.stop_reason) + '</div>' : "") +
     (btn ? '<div class="row" style="margin-top:6px;flex-wrap:wrap">' + btn + '</div>' : "") + '</div>';
 }
 
 function adminView() {
-  var tabs = [["topup", "💰", "Request Saldo", S.tops.length], ["sessions", "🕘", "Sesi Terbaru", S.unpaid.length], ["add", "➕", "Tambah Anggota", 0], ["reset", "🔑", "Reset Password", 0]];
+  var tabs = [["topup", "", "Request Saldo", S.tops.length], ["sessions", "", "Sesi Terbaru", S.unpaid.length], ["add", "", "Tambah Anggota", 0], ["reset", "", "Reset Password", 0]];
   var menu = '<div class="admin-menu"><div class="admin-menu-inner">' + tabs.map(function (t) {
     return '<button class="' + (S.adminMenu === t[0] ? "active" : "") + '" data-act="adminmenu" data-v="' + t[0] + '">' + t[1] + ' ' + t[2] + (t[3] ? '<span class="badge">' + t[3] + '</span>' : "") + '</button>';
   }).join("") + '</div></div>';
@@ -521,7 +649,7 @@ document.addEventListener("click", async function (e) {
     }
     if (act === "logout") { await sb.auth.signOut(); S.user = null; S.profile = null; S.members = null; S.unl = null; S.pwOpen = false; S.np1 = ""; S.np2 = ""; S.sig = ""; S.pwShow = {}; return login(); }
     if (act === "tab") {
-      S.tab = v; S.topupOpen = false;
+      S.tab = v; S.topupOpen = false; S.page = "home"; S.sub = null;
       if (v === "admin") S.adminMenu = "sessions";
       S.sig = "";
       return load();
@@ -579,6 +707,19 @@ document.addEventListener("click", async function (e) {
       if (S.busy[o.id]) return toast("Colokan sedang dipakai");
       S.outlet = o.id; S.sig = ""; return render();
     }
+    if (act === "page") { S.page = v; S.sig = ""; window.scrollTo(0, 0); return render(); }
+    if (act === "sub") { S.sub = S.sub === v ? null : v; S.sig = ""; return render(); }
+    if (act === "soon") return toast(v + " belum tersedia");
+    if (act === "help") { window.open("https://wa.me/6285128052599", "_blank"); return; }
+    if (act === "rcoin") { S.tab = "riwayat"; S.rtab = "coin"; S.sig = ""; return load(); }
+    if (act === "seen") { try { localStorage.setItem("omb_seen", String(S.sess.id)); } catch (e2) {} S.sig = ""; return render(); }
+    if (act === "stopask") { S.stopDlg = true; S.sig = ""; return render(); }
+    if (act === "stopno") { S.stopDlg = false; S.sig = ""; return render(); }
+    if (act === "inputid") {
+      var iv = prompt("Masukkan nomor/ID Lokasi:", ""); if (iv === null) return;
+      if (openCharger(iv)) { S.sig = ""; return render(); }
+      return;
+    }
     if (act === "pwform") { S.pwOpen = !S.pwOpen; S.np1 = ""; S.np2 = ""; S.sig = ""; return render(); }
     if (act === "pwsave") {
       var n1 = document.getElementById("np1").value, n2 = document.getElementById("np2").value;
@@ -620,6 +761,8 @@ document.addEventListener("click", async function (e) {
       alert("Password " + nm + " sudah direset.\n\nPassword baru: " + np + "\n\nSampaikan ke anggota, lalu minta segera menggantinya lewat tombol Password.");
       return;
     }
+    if (act === "pmode") { S.mode = v === "rp" ? "rp" : "poin"; S.tgt = null; S.custom = ""; S.rp = 0; S.sig = ""; return render(); }
+    if (act === "rpchip") { var rv = parseInt(v, 10); S.rp = S.rp === rv ? 0 : rv; S.sig = ""; return render(); }
     if (act === "tgt") {
       var nv = v === "custom" ? "custom" : parseInt(v, 10);
       S.tgt = (S.tgt === nv) ? null : nv; // tekan lagi = batal pilih
@@ -629,16 +772,17 @@ document.addEventListener("click", async function (e) {
       var o2 = S.outlets.filter(function (x) { return x.id === S.outlet; })[0];
       if (!o2 || !o2.is_available) return toast("Colokan tidak tersedia");
       if (S.busy[o2.id]) return toast("Colokan sedang dipakai");
+      if (S.mode === "rp" && S.rp > MAX_RP) return toast("Maksimal " + rp(MAX_RP));
       var tw = tgtVal();
-      if (!tw) return toast("Pilih atau isi jumlah poin dulu");
+      if (!tw) return toast("Pilih atau isi jumlah dulu");
       if (tw > S.maxWh) return toast("Maksimal " + poin(S.maxWh) + " poin");
       b.disabled = true;
       await api("/session", { outlet_id: S.outlet, target_wh: tw });
-      S.tgt = null; S.custom = "";
+      S.tgt = null; S.custom = ""; S.rp = 0; S.page = "home";
       toast("Menunggu perangkat menyalakan colokan");
     }
     if (act === "stop") {
-      if (!confirm("Hentikan pengisian sekarang?")) return;
+      S.stopDlg = false;
       b.disabled = true;
       var sr = await api("/session/stop", {});
       toast(sr.action === "pending_cancelled" ? "Sesi dibatalkan" : "Perintah stop dikirim");
@@ -699,11 +843,18 @@ async function boot() {
   S.admin = !!(a.data);
   await load();
   await loadProfile();
+  await loadLokasi();
+  if (PEND) {
+    var pid = PEND; PEND = null;
+    try { history.replaceState(null, "", location.pathname); } catch (e) {}
+    openCharger(pid);
+  }
   S.sig = ""; render();
 }
 document.addEventListener("input", function (e) {
   var id = e.target.id;
-  if (id === "cp") { S.custom = e.target.value; S.tgt = "custom"; document.querySelectorAll(".chips .sel").forEach(function (c) { c.classList.remove("sel"); }); var sb = document.getElementById("startBtn"); if (sb) sb.disabled = !tgtVal(); }
+  if (id === "cp") { S.custom = e.target.value; S.tgt = "custom"; document.querySelectorAll(".chips .sel").forEach(function (c) { c.classList.remove("sel"); }); var sb = document.getElementById("startBtn"); if (sb) sb.disabled = !tgtVal(); var eb = document.getElementById("estbox"); if (eb) eb.innerHTML = estHtml(); }
+  if (id === "cr") { S.rp = parseInt(e.target.value, 10) || 0; document.querySelectorAll(".chips button").forEach(function (c) { c.classList.toggle("sel", parseInt(c.dataset.v, 10) === S.rp); }); var sbtn = document.getElementById("startBtn"); if (sbtn) sbtn.disabled = !tgtVal(); var ebox = document.getElementById("estbox"); if (ebox) ebox.innerHTML = estHtml(); }
   if (id === "ta") { S.tamt = parseInt(e.target.value, 10) || 0; document.querySelectorAll(".chips button").forEach(function (c) { c.classList.toggle("sel", parseInt(c.dataset.v, 10) === S.tamt); }); var tb = document.getElementById("topupBtn"); if (tb) tb.disabled = !(S.tamt >= 5000 && S.tamt <= 1000000); }
   if (id === "ts") { S.tsq = e.target.value; var tl = document.getElementById("tlist"); if (tl) tl.innerHTML = tsRows(); }
   if (id === "ef") S.exFrom = e.target.value;
@@ -717,3 +868,4 @@ document.addEventListener("input", function (e) {
 setInterval(function () { if (S.user && document.visibilityState === "visible") load(); }, 4000);
 boot();
 if ("serviceWorker" in navigator) window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); });
+setInterval(function () { document.querySelectorAll("[data-since]").forEach(function (e) { e.textContent = mm((Date.now() - Number(e.dataset.since)) / 1000); }); }, 1000);
