@@ -76,6 +76,23 @@ async function api(path, body) {
 }
 
 // ===== DATA =====
+// Lengkapi data anggota (nama, nama_panggilan, id_anggota) dari charge_profiles + anggota_omb
+async function enrichMembers(list) {
+  try {
+    var pr = await sb.from("charge_profiles").select("user_id,member_id").range(0, 999);
+    var am = await sb.from("anggota_omb").select("id,id_anggota,nama,nama_panggilan").range(0, 999);
+    if (pr.error || am.error) { console.warn("enrich gagal", pr.error, am.error); return list; }
+    var byId = {}, byUser = {};
+    (am.data || []).forEach(function (a) { byId[a.id] = a; });
+    (pr.data || []).forEach(function (p) { byUser[p.user_id] = byId[p.member_id]; });
+    return list.map(function (m) {
+      var a = byUser[m.user_id];
+      if (!a) return m;
+      return Object.assign({}, m, { nama: a.nama || m.nama, nama_panggilan: a.nama_panggilan || m.nama_panggilan, id_anggota: a.id_anggota || m.id_anggota });
+    });
+  } catch (e) { return list; }
+}
+
 async function load() {
   var u = S.user.id;
   var first = !S.loadedStatic; // outlet, tarif, config jarang berubah: cukup dimuat sekali
@@ -129,7 +146,7 @@ async function load() {
     if (m.data) m.data.forEach(function (x) { S.names[x.id] = x.nama; });
   }
   if (S.admin && S.tab === "admin" && S.members === null) {
-    try { S.members = (await api("/admin/members")).members || []; } catch (e) { S.members = []; toast("Daftar anggota gagal dimuat: " + e.message); }
+    try { S.members = await enrichMembers((await api("/admin/members")).members || []); } catch (e) { S.members = []; toast("Daftar anggota gagal dimuat: " + e.message); }
   }
   if (S.admin && S.tab === "admin" && S.unl === null) {
     try { S.unl = (await api("/admin/unlinked")).anggota || []; } catch (e) { S.unl = []; toast("Daftar anggota gagal dimuat: " + e.message); }
